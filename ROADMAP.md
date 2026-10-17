@@ -100,7 +100,7 @@ Planned additions, each introduced only when there is a reason for it:
 | Phase | Focus | Status |
 |---|---|---|
 | 1 | Project setup and market data | ✅ Complete |
-| 1.5 | Publish to GitHub | ⏭️ Next |
+| 1.5 | Publish to GitHub | ✅ Complete |
 | 2 | Exploratory analysis and feature engineering | Planned |
 | 3 | Market regime detection | Planned |
 | 4 | Machine learning for volatility forecasting | Planned |
