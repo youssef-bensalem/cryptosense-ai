@@ -79,9 +79,14 @@ cryptosense-ai/
 │   └── processed/              # validated, analysis-ready data
 ├── notebooks/
 │   └── 01_fetch_and_validate_btc.ipynb
+├── src/
+│   └── cryptosense/            # reusable package (editable install)
+│       ├── __init__.py         # marks the folder as a package
+│       └── data.py             # market data fetching and preparation
 ├── .gitignore
 ├── README.md
 ├── ROADMAP.md
+├── pyproject.toml              # package definition for the editable install
 └── requirements.txt
 ```
 
