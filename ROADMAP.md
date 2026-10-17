@@ -1,0 +1,248 @@
+# CryptoSense AI — Workflow & Roadmap
+
+CryptoSense AI is a personal, AI-assisted research application for spot swing trading in cryptocurrencies. It analyzes market conditions, estimates near-term volatility with machine learning, flags conditions worth investigating, and evaluates strategy ideas against historical data. The final product is a local Streamlit web dashboard.
+
+The project has two equal goals: to build a tool that is genuinely useful for market research, and to develop practical skills in data engineering, machine learning, and software development. This document describes how the project is built, the principles it follows, and the milestones that lead to the finished application.
+
+> **Disclaimer.** CryptoSense AI is a research and learning tool. It does not give financial advice, does not guarantee profits, and never places trades or connects to a trading account. Historical results do not predict future performance.
+
+---
+
+## 1. How the work is done
+
+### The milestone loop
+
+Every milestone follows the same cycle:
+
+1. **Understand the problem** and the concepts involved before writing code.
+2. **Agree on the approach**, including the trade-offs of the alternatives.
+3. **Write a small amount of code**, one step at a time.
+4. **Run it and inspect the results**, not just whether it ran without errors.
+5. **Debug problems** by reading the error and finding the cause, rather than guessing.
+6. **Review what was learned**, including a short self-check of the key ideas.
+7. **Commit the working version** with a clear message.
+8. **Move on only when ready.**
+
+### Git conventions
+
+- Stage files explicitly (`git add <file>`) instead of `git add .`, so nothing is committed by accident.
+- Before every commit, check `git status`, and use `git diff <file>` for any change you did not expect.
+- After committing, verify the contents with `git ls-files` rather than trusting the commit message.
+- One commit per meaningful piece of work, with a message describing what it does (e.g. "Add price and volume charts").
+- Use `git commit --amend` only on commits that have not been pushed.
+- Never commit `.venv/`, `data/`, notebook checkpoints, caches, or any secrets. `.gitignore` lives in the project root and must be saved as UTF-8.
+- Rerunning a notebook changes its stored outputs. A rerun alone is not a reason to commit.
+
+### Notebook conventions
+
+- One notebook per milestone, numbered in order (`01_...`, `02_...`).
+- A Markdown heading above each step explains what the step does.
+- Anything the notebook needs in order to run (creating folders, fetching data) is done by the notebook itself.
+- A notebook is complete only when it passes the reproducibility test: delete `data/`, restart the kernel, Run All, and everything rebuilds without errors.
+- Once code is stable and understood, it moves from notebooks into reusable modules under `src/`.
+
+---
+
+## 2. Engineering principles
+
+These rules apply to every phase. Most of them were learned through concrete problems in Milestone 1.
+
+**Time only flows forward.** No calculation for day *t* may use information from after day *t*. This applies to features, thresholds, scaling, model training, and backtests. Most ways a trading project fools its builder are violations of this rule.
+
+**UTC everywhere.** All timestamps are stored and processed in UTC. A daily candle's timestamp is its opening time (00:00 UTC), and the candle is final only after its day ends.
+
+**Only completed candles are analyzed.** The current day's candle is still forming: its high, low, close, and volume keep changing. It is kept in raw data but excluded from processed data.
+
+**Raw data is immutable.** Raw files record exactly what the API returned and are never edited. Processed files are derived from raw data by code, so any processing bug can be fixed and rerun without refetching.
+
+**Validation reports; it does not silently fix.** Checks count and display problems. Rows are not deleted automatically, because deleting a row creates a gap in the time series and destroys the evidence of what went wrong. The right fix depends on the cause.
+
+**"Runs without error" is not "works".** Outputs are verified: row counts against estimates, round-trip checks on saved files, and validation checks tested against deliberately broken data.
+
+**No duplicated magic numbers.** A value used in more than one place (such as a request limit) is defined once as a named variable.
+
+**Simple before complex.** A simple, interpretable baseline comes first. A more complex method is kept only if it beats the baseline on data it has never seen. New dependencies are explained before they are installed.
+
+**Honest evaluation.** The final test period is evaluated once and never used for tuning. Results are reported with their uncertainty and limitations.
+
+---
+
+## 3. Project structure
+
+Current structure:
+
+```
+cryptosense-ai/
+├── .venv/                      # virtual environment (not committed)
+├── data/                       # generated by the notebooks (not committed)
+│   ├── raw/                    # exactly as fetched from the API
+│   └── processed/              # validated, analysis-ready data
+├── notebooks/
+│   └── 01_fetch_and_validate_btc.ipynb
+├── .gitignore
+├── README.md
+├── ROADMAP.md
+└── requirements.txt
+```
+
+Planned additions, each introduced only when there is a reason for it:
+
+| Folder | Purpose | Expected phase |
+|---|---|---|
+| `src/cryptosense/` | Reusable modules: data, features, models, evaluation | Phase 2 onward |
+| `tests/` | Automated pytest checks, starting with data validation and leakage tests | Phase 2 onward |
+| `app/` | Streamlit dashboard | Phase 7 |
+
+---
+
+## 4. Roadmap
+
+| Phase | Focus | Status |
+|---|---|---|
+| 1 | Project setup and market data | ✅ Complete |
+| 1.5 | Publish to GitHub | ⏭️ Next |
+| 2 | Exploratory analysis and feature engineering | Planned |
+| 3 | Market regime detection | Planned |
+| 4 | Machine learning for volatility forecasting | Planned |
+| 5 | Potential setup identification | Planned |
+| 6 | Historical evaluation and backtesting | Planned |
+| 7 | Streamlit web application | Planned |
+
+### Phase 1 — Project setup and market data ✅
+
+The project environment was set up with Python 3.12, an isolated virtual environment, pinned dependencies, and Git. The notebook fetches the full daily BTC/USDT history from Binance through CCXT, using pagination because each request returns at most 1,000 candles. The data is converted to a pandas DataFrame with a UTC DatetimeIndex, validated, saved, and visualized.
+
+**Definition of done**
+
+- [x] Reproducible: deleting `data/` and running Restart & Run All rebuilds everything without errors
+- [x] Full history from August 2017 to the last completed day, with the incomplete candle excluded
+- [x] Validated for duplicate dates, chronological order, gaps, missing values, invalid values, and candle consistency
+- [x] Raw and processed data saved as CSV, with a round-trip check confirming identical values and types on reload
+- [x] Price chart (linear and log scale) and volume chart
+- [x] Work committed with clear messages
+- [x] Key decisions understood and explained
+
+**Key lessons:** `.gitignore` only affects untracked files; the API's `since` parameter is inclusive, so pagination must start just after the last candle received; CSV does not preserve data types; long-run volume measured in BTC is distorted by price changes.
+
+### Phase 1.5 — Publish to GitHub
+
+- [ ] Create an empty repository on GitHub
+- [ ] Rename the local branch from `master` to `main`
+- [ ] Connect the remote and push
+- [ ] Confirm only the project files appear on GitHub (no `.venv/` or `data/`)
+- [ ] Write a short README that describes the project and links to this roadmap
+
+### Phase 2 — Exploratory analysis and feature engineering
+
+**Goal:** understand historical market behavior and build features that describe it, using only information available at each point in time.
+
+**Proposed preparation (to be agreed before starting):** move the tested fetch and validation code from the notebook into a module under `src/cryptosense/`, add pytest tests for the validation checks, and extend the pipeline to the full watchlist: BTC/USDT, ETH/USDT, and SOL/USDT.
+
+**Candidate features:** daily and rolling returns, moving averages and price-to-average ratios, rolling volatility, volume change and relative volume, momentum, and trend strength. A feature is added only when it has a clear purpose.
+
+**Definition of done**
+
+- [ ] Each feature is documented with its formula, intuition, and limitations
+- [ ] A leakage test confirms that features are computed only from past data: features computed on the full dataset and on a dataset truncated at any date must agree up to that date
+- [ ] EDA charts with written observations, clearly separated into historical observations and interpretations
+- [ ] The notebook passes the reproducibility test
+
+### Phase 3 — Market regime detection
+
+**Goal:** describe market conditions (uptrend, downtrend, range-bound, and lower or higher volatility) first with transparent rules, then with an unsupervised model.
+
+**Approach:** a rule-based baseline using trend and volatility features, followed by K-means clustering with proper feature scaling. Any thresholds or scaling are fitted only on past data.
+
+**Definition of done**
+
+- [ ] Rule-based regimes are defined, plotted on the price chart, and summarized statistically
+- [ ] Clusters are interpreted through their feature profiles and compared with the rule-based regimes
+- [ ] Cluster stability is checked across time periods and random seeds
+- [ ] Clusters are not presented as genuine market regimes unless the evidence supports it
+
+### Phase 4 — Machine learning for volatility forecasting
+
+**Goal:** estimate realized volatility over the next five days, and find out whether machine learning improves on a simple baseline.
+
+**Approach:** define the target precisely from future returns, build features from past data only, and split the data chronologically into training, validation, and final test periods. The historical-volatility baseline comes first; Random Forest or gradient-boosting regression follows.
+
+**Definition of done**
+
+- [ ] Target variable defined and documented, with checks that it does not leak into the features
+- [ ] Chronological or walk-forward evaluation; no random shuffling of time-series data
+- [ ] Comparison table of the model against the baseline using appropriate error metrics
+- [ ] Errors analyzed by market regime and period, including where the model performs worse
+- [ ] Final test period evaluated once, with uncertainty and limitations stated
+
+### Phase 5 — Potential setup identification
+
+**Goal:** flag market conditions worth investigating, as research candidates, not buy or sell signals.
+
+**Approach:** transparent rules based on trend, momentum, volume, volatility, and regime. ML features are tested afterwards to see whether they improve on the rules.
+
+**Definition of done**
+
+- [ ] Each flagged setup shows which conditions were detected and which features contributed
+- [ ] Each setup shows the current regime, relevant volatility estimates, and historical outcomes of similar setups where available
+- [ ] Every explanation is generated from actual data, with uncertainty and limitations stated
+- [ ] Any ML enhancement is compared against the rule-based baseline
+
+### Phase 6 — Historical evaluation and backtesting
+
+**Goal:** test whether setup-based strategies have historical evidence behind them, under realistic assumptions.
+
+**Approach:** explicit entry and exit rules, transaction fees and slippage, walk-forward evaluation, and comparison with simple baselines such as buy-and-hold.
+
+**Definition of done**
+
+- [ ] All assumptions documented: fees, slippage, position sizing, entry and exit timing
+- [ ] Protection against look-ahead bias verified, so that each decision uses only data available at that time
+- [ ] Metrics reported, including total return, maximum drawdown, volatility, number of trades, and time in the market
+- [ ] Results broken down by market regime
+- [ ] Final test period not used for strategy tuning
+
+### Phase 7 — Streamlit web application
+
+**Goal:** a local dashboard, launched from VS Code and opened in the browser, that presents real outputs from the pipeline and models.
+
+**Planned pages:** market overview, market conditions, setup research, ML analysis, and backtesting.
+
+**Definition of done**
+
+- [ ] Dashboard calls the modules in `src/`; it contains no analysis logic of its own
+- [ ] Every number and chart comes from actual pipeline output; nothing is hardcoded
+- [ ] Limitations and uncertainty are visible next to model outputs and setups
+- [ ] The app launches locally with a single documented command
+
+---
+
+## 5. Future enhancements (optional)
+
+These are considered only after the core application is stable, and only when they solve a specific problem:
+
+- **Parquet storage**, to preserve data types without rebuilding them on load
+- **Incremental updates**, fetching only candles newer than the last saved one instead of the full history
+- **Exact dollar volume**, using the quote-asset volume Binance provides instead of approximating it as volume × close
+- **Additional assets and timeframes**, such as 4-hour candles
+- **SQLite**, if structured application storage becomes necessary
+- **Continuous integration**, with GitHub Actions running the pytest suite on every push
+- **Online deployment**, if the application is stable and deployment is worthwhile
+- **FastAPI or a separate frontend**, only if Streamlit becomes a real limitation
+
+LLMs, RAG pipelines, vector databases, deep learning frameworks, and agent frameworks are deliberately excluded unless a specific problem requires them.
+
+---
+
+## 6. Running the project
+
+Requires Python 3.12 and Git. Commands below are for Windows PowerShell; macOS and Linux equivalents are noted.
+
+```
+git clone <repository-url>
+cd cryptosense-ai
+py -3.12 -m venv .venv                 # macOS/Linux: python3.12 -m venv .venv
+.venv\Scripts\Activate.ps1             # macOS/Linux: source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Then open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.venv` kernel, and use Restart and Run All. The notebook creates the `data/` folders, fetches the data, validates it, saves it, and draws the charts.
