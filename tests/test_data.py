@@ -9,6 +9,7 @@ from cryptosense.data import (
     fetch_ohlcv_history,
     validate_ohlcv,
     symbol_to_slug,
+    save_dataset,
 )
 
 START_MS = 1_704_067_200_000
@@ -125,3 +126,25 @@ def test_fetch_exact_multiple_of_limit():
 )
 def test_symbol_to_slug(symbol, expected):
     assert symbol_to_slug(symbol) == expected
+
+
+def test_save_dataset_file_names(tmp_path):
+    candles = make_candles(3)
+    raw_path, processed_path = save_dataset(
+        candles, candles_to_dataframe(candles), "ETH/USDT", tmp_path
+    )
+
+    assert raw_path == tmp_path / "raw" / "eth_usdt_1d_raw.csv"
+    assert processed_path == tmp_path / "processed" / "eth_usdt_1d.csv"
+
+
+def test_raw_file_matches_fetched_candles(tmp_path):
+    candles = make_candles(3)
+    raw_path, _ = save_dataset(
+        candles, candles_to_dataframe(candles), "BTC/USDT", tmp_path
+    )
+
+    expected = pd.DataFrame(
+        candles, columns=["timestamp", "open", "high", "low", "close", "volume"]
+    )
+    pd.testing.assert_frame_equal(pd.read_csv(raw_path), expected)

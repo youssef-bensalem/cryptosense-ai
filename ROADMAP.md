@@ -230,7 +230,7 @@ These are considered only after the core application is stable, and only when th
 - **Parquet storage**, to preserve data types without rebuilding them on load
 - **Incremental updates**, fetching only candles newer than the last saved one instead of the full history
 - **Exact dollar volume**, using the quote-asset volume Binance provides instead of approximating it as volume × close
-- **Additional assets and timeframes**, such as 4-hour candles
+- **Additional assets and timeframes**, such as 4-hour candles Requires generalising `validate_ohlcv`, `drop_incomplete_candles` and the file naming in `data.py`, which currently assume daily candles; candle duration can come from `exchange.parse_timeframe()`.
 - **SQLite**, if structured application storage becomes necessary
 - **Continuous integration**, with GitHub Actions running the pytest suite on every push
 - **Online deployment**, if the application is stable and deployment is worthwhile
