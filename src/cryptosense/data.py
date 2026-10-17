@@ -1,4 +1,5 @@
 import pandas as pd
+from pathlib import Path
 DAY_MS = 86_400_000
 
 def fetch_ohlcv_history(exchange,
@@ -163,3 +164,105 @@ def drop_incomplete_candles(df, now_ms):
     is_complete = df["timestamp"] + DAY_MS <= now_ms
 
     return df[is_complete]
+
+
+#funtions used to extend to sol and eth
+
+def symbol_to_slug(symbol):
+
+    """Convert a market symbol into a lowercase, file-name-safe slug.
+
+    Example: ``"BTC/USDT"`` becomes ``"btc_usdt"``.
+
+    Intended for spot symbols. Futures symbols such as ``"BTC/USDT:USDT"``
+    contain ``":"``, which is not allowed in Windows file names, and are
+    not handled.
+
+    Parameters
+    ----------
+    symbol : str
+        Market symbol in CCXT format.
+
+    Returns
+    -------
+    str
+        The slug.
+    """
+
+    new=symbol.replace("/", "_")
+    new=new.lower()
+    return new
+
+
+def save_dataset(raw_candles, df, symbol, data_dir):
+
+    """Save raw and processed data for one symbol as CSV files.
+
+    Writes ``<data_dir>/raw/<slug>_1d_raw.csv`` (candles exactly as fetched)
+    and ``<data_dir>/processed/<slug>_1d.csv`` (validated DataFrame, with its
+    ``date`` index as the first column). Folders are created if needed.
+
+    Parameters
+    ----------
+    raw_candles : list of list
+        Candles as returned by ``fetch_ohlcv_history``.
+    df : pandas.DataFrame
+        Processed data, e.g. after ``drop_incomplete_candles``.
+    symbol : str
+        Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
+    data_dir : pathlib.Path
+        Root data folder chosen by the caller.
+
+    Returns
+    -------
+    tuple of pathlib.Path
+        ``(raw_path, processed_path)``.
+    """
+
+    raw_dir = data_dir / "raw"
+    processed_dir = data_dir / "processed"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    processed_dir.mkdir(parents=True, exist_ok=True)
+
+    slug=symbol_to_slug(symbol)
+
+    raw_path=raw_dir / f"{slug}_1d_raw.csv"
+    processed_path=processed_dir / f"{slug}_1d.csv"
+
+    raw_df = pd.DataFrame(raw_candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    raw_df.to_csv(raw_path, index=False)
+
+    df.to_csv(processed_path)
+
+    return raw_path, processed_path
+
+
+def load_processed(symbol, data_dir):
+
+    """Load one symbol's processed CSV with the exact types it was saved with.
+
+    The ``date`` index is rebuilt from the integer ``timestamp`` column rather
+    than parsed from text, so the result has a ``datetime64[ms, UTC]`` index
+    and matches the DataFrame originally passed to ``save_dataset``.
+
+    Parameters
+    ----------
+    symbol : str
+        Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
+    data_dir : pathlib.Path
+        Root data folder, the same one passed to ``save_dataset``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Processed data indexed by UTC date.
+    """
+
+    slug=symbol_to_slug(symbol)
+    processed_path=data_dir / "processed" / f"{slug}_1d.csv"
+
+    reloaded = pd.read_csv(processed_path)
+    reloaded["date"] = pd.to_datetime(reloaded["timestamp"], unit="ms", utc=True)
+    reloaded = reloaded.set_index("date")
+
+    return reloaded

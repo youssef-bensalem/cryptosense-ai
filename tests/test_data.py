@@ -8,6 +8,7 @@ from cryptosense.data import (
     drop_incomplete_candles,
     fetch_ohlcv_history,
     validate_ohlcv,
+    symbol_to_slug,
 )
 
 START_MS = 1_704_067_200_000
@@ -112,3 +113,15 @@ def test_fetch_exact_multiple_of_limit():
 
     assert results == candles
     assert len(exchange.requests) == 3
+
+
+@pytest.mark.parametrize(
+    "symbol, expected",
+    [
+        ("BTC/USDT", "btc_usdt"),
+        ("ETH/USDT", "eth_usdt"),
+        ("SOL/USDT", "sol_usdt"),
+    ],
+)
+def test_symbol_to_slug(symbol, expected):
+    assert symbol_to_slug(symbol) == expected
