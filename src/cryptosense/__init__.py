@@ -1,0 +1,1 @@
+"""CryptoSense AI: crypto market research tools."""

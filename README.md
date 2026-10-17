@@ -49,7 +49,9 @@ Open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.venv` 
 ```
 cryptosense-ai/
 ├── notebooks/          # step-by-step development notebooks
+├── src/cryptosense/    # reusable Python package (installed in editable mode)
 ├── data/               # generated locally: raw/ and processed/ (not committed)
+├── pyproject.toml      # package definition for the editable install
 ├── requirements.txt    # pinned dependencies
 ├── ROADMAP.md          # workflow, principles, and milestones
 └── README.md
