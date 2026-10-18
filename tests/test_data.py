@@ -10,6 +10,7 @@ from cryptosense.data import (
     validate_ohlcv,
     symbol_to_slug,
     save_dataset,
+    load_processed,
 )
 
 START_MS = 1_704_067_200_000
@@ -148,3 +149,15 @@ def test_raw_file_matches_fetched_candles(tmp_path):
         candles, columns=["timestamp", "open", "high", "low", "close", "volume"]
     )
     pd.testing.assert_frame_equal(pd.read_csv(raw_path), expected)
+
+
+def test_save_and_load_round_trip(tmp_path):
+    candles = make_candles(5)
+    df = candles_to_dataframe(candles)
+
+    raw_path, processed_path = save_dataset(candles, df, "BTC/USDT", tmp_path)
+    loaded = load_processed("BTC/USDT", tmp_path)
+
+    assert raw_path.exists()
+    assert processed_path.exists()
+    pd.testing.assert_frame_equal(df, loaded)

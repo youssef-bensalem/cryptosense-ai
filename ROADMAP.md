@@ -82,8 +82,10 @@ cryptosense-ai/
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── features.py         # feature engineering
 │       └── data.py             # market data fetching and preparation
 ├── tests/
+│   ├── test_features.py        # pytest test for features
 │   └── test_data.py            # pytest tests for the data module
 ├── .gitignore
 ├── README.md

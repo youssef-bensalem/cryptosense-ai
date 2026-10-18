@@ -49,8 +49,14 @@ Open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.venv` 
 ```
 cryptosense-ai/
 ├── notebooks/          # step-by-step development notebooks
-├── src/cryptosense/    # reusable Python package (installed in editable mode)
-├── tests/              # automated pytest tests
+├── src/
+│   └── cryptosense/            # reusable package (editable install)
+│       ├── __init__.py         # marks the folder as a package
+│       ├── data.py             # market data fetching and preparation
+│       └── features.py         # feature engineering
+├── tests/
+│   ├── test_data.py            # tests for the data module
+│   └── test_features.py        # tests for the features module, incl. leakage
 ├── data/               # generated locally: raw/ and processed/ (not committed)
 ├── pyproject.toml      # package definition for the editable install
 ├── requirements.txt    # pinned dependencies
