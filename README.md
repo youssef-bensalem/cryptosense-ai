@@ -10,15 +10,20 @@ This is also a learning project: every component is built step by step, with the
 
 ## Current status
 
-**Phase 1 (complete): market data pipeline.** The notebook `notebooks/01_fetch_and_validate_btc.ipynb`:
+**Phases 1–2 complete: data pipeline and feature engineering.**
 
-- fetches the full daily BTC/USDT price history from Binance (August 2017 to the last completed day) through public market data, with no API key required
-- converts it to a pandas DataFrame with UTC dates
-- validates it for duplicate dates, gaps, missing or invalid values, and inconsistent candles, and excludes the current, still-forming candle
-- saves raw and processed datasets locally and verifies that they reload identically
-- charts closing price (linear and log scale) and trading volume
+**Market data (Phase 1, extended in Phase 2).** Tested functions in `src/cryptosense/data.py` fetch the full daily history for the watchlist (BTC/USDT, ETH/USDT and SOL/USDT) from Binance's public market data, with no API key required. The data is validated for duplicate dates, gaps, missing or invalid values, and inconsistent candles; the current, still-forming candle is excluded; and raw and processed datasets are saved locally and verified to reload identically.
 
-Upcoming phases cover feature engineering, market regime detection, volatility forecasting, setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
+- `notebooks/01_fetch_and_validate_btc.ipynb`: step-by-step walkthrough of the pipeline for BTC
+- `notebooks/02_fetch_watchlist.ipynb`: runs the pipeline for the whole watchlist and summarizes the results
+
+**Features (Phase 2).** `src/cryptosense/features.py` adds nine features that are comparable across time and assets: log returns, 5- and 20-day momentum, distance from the 20- and 100-day moving averages, 20- and 60-day volatility, relative volume, and a 20-day efficiency ratio for trend cleanliness. A leakage test verifies that every feature uses only past data.
+
+- `notebooks/03_returns_eda.ipynb`: exploratory analysis of BTC returns (fat tails, volatility clustering, moving-average lag, volume behavior, and feature overlap), with written observations kept separate from interpretations
+
+**Testing.** 30 automated pytest tests cover the data and feature modules, including pagination edge cases tested against a simulated exchange.
+
+Upcoming phases cover market regime detection, volatility forecasting, setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
 
 ## Tech stack
 

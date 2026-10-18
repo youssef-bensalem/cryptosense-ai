@@ -110,8 +110,8 @@ Planned additions, each introduced only when there is a reason for it:
 |---|---|---|
 | 1 | Project setup and market data | ✅ Complete |
 | 1.5 | Publish to GitHub | ✅ Complete |
-| 2 | Exploratory analysis and feature engineering | Planned |
-| 3 | Market regime detection | Planned |
+| 2 | Exploratory analysis and feature engineering | ✅ Complete |
+| 3 | Market regime detection | ⏭️ Next |
 | 4 | Machine learning for volatility forecasting | Planned |
 | 5 | Potential setup identification | Planned |
 | 6 | Historical evaluation and backtesting | Planned |
