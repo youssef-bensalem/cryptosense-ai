@@ -25,6 +25,10 @@ This is also a learning project: every component is built step by step, with the
 
 Upcoming phases cover market regime detection, volatility forecasting, setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
 
+**Market regimes (Phase 3).** `src/cryptosense/regimes.py` labels each day's trend ("up", "down" or "range") and volatility ("high" or "low", relative to the past year) using transparent rules, with a leakage test confirming the labels use only past data.
+
+- `notebooks/04_regimes.ipynb`: regime stability analysis and a K-means clustering study, which found moderate, seed-stable structure matching the rule dimensions but drifting on 2024+ data, and was therefore kept as analysis rather than adopted
+
 ## Tech stack
 
 - **Python 3.12**, developed in VS Code with Jupyter notebooks

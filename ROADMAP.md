@@ -78,20 +78,25 @@ cryptosense-ai/
 │   ├── raw/                    # exactly as fetched from the API
 │   └── processed/              # validated, analysis-ready data
 ├── notebooks/
-│   └── 01_fetch_and_validate_btc.ipynb
+│   ├── 01_fetch_and_validate_btc.ipynb   # step-by-step BTC pipeline walkthrough
+│   ├── 02_fetch_watchlist.ipynb          # pipeline for BTC, ETH and SOL
+│   ├── 03_returns_eda.ipynb              # returns, volatility and feature analysis
+│   └── 04_regimes.ipynb                  # rule-based regimes and K-means study
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── data.py             # market data fetching and preparation
 │       ├── features.py         # feature engineering
-│       └── data.py             # market data fetching and preparation
+│       └── regimes.py          # rule-based market regimes
 ├── tests/
-│   ├── test_features.py        # pytest test for features
-│   └── test_data.py            # pytest tests for the data module
+│   ├── test_data.py            # tests for the data module
+│   ├── test_features.py        # tests for the features module, incl. leakage
+│   └── test_regimes.py         # tests for the regimes module, incl. leakage
 ├── .gitignore
-├── README.md
-├── ROADMAP.md
 ├── pyproject.toml              # package definition for the editable install
-└── requirements.txt
+├── README.md
+├── requirements.txt            # pinned dependencies
+└── ROADMAP.md
 ```
 
 Planned additions, each introduced only when there is a reason for it:
@@ -111,8 +116,8 @@ Planned additions, each introduced only when there is a reason for it:
 | 1 | Project setup and market data | ✅ Complete |
 | 1.5 | Publish to GitHub | ✅ Complete |
 | 2 | Exploratory analysis and feature engineering | ✅ Complete |
-| 3 | Market regime detection | ⏭️ Next |
-| 4 | Machine learning for volatility forecasting | Planned |
+| 3 | Market regime detection | ✅ Complete |
+| 4 | Machine learning for volatility forecasting | ⏭️ Next |
 | 5 | Potential setup identification | Planned |
 | 6 | Historical evaluation and backtesting | Planned |
 | 7 | Streamlit web application | Planned |
