@@ -246,7 +246,10 @@ These are considered only after the core application is stable, and only when th
 
 LLMs, RAG pipelines, vector databases, deep learning frameworks, and agent frameworks are deliberately excluded unless a specific problem requires them.
 
+- **HAR volatility model**: a linear regression of future realized volatility on past 1-, 5- and 20-day realized volatility, a standard interpretable benchmark. Evaluate with the Phase 4 protocol (chronological split, purging, test set used once), ideally with walk-forward evaluation.
+
 ---
+
 
 ## 6. Running the project
 
