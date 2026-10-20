@@ -81,7 +81,8 @@ cryptosense-ai/
 │   ├── 01_fetch_and_validate_btc.ipynb   # step-by-step BTC pipeline walkthrough
 │   ├── 02_fetch_watchlist.ipynb          # pipeline for BTC, ETH and SOL
 │   ├── 03_returns_eda.ipynb              # returns, volatility and feature analysis
-│   └── 04_regimes.ipynb                  # rule-based regimes and K-means study
+│   ├── 04_regimes.ipynb                  # rule-based regimes and K-means study
+│   └── 05_volatility_forecast.ipynb      # 5-day volatility forecasting and evaluation
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
@@ -117,8 +118,8 @@ Planned additions, each introduced only when there is a reason for it:
 | 1.5 | Publish to GitHub | ✅ Complete |
 | 2 | Exploratory analysis and feature engineering | ✅ Complete |
 | 3 | Market regime detection | ✅ Complete |
-| 4 | Machine learning for volatility forecasting | ⏭️ Next |
-| 5 | Potential setup identification | Planned |
+| 4 | Machine learning for volatility forecasting | ✅ Complete |
+| 5 | Potential setup identification | ⏭️ Next |
 | 6 | Historical evaluation and backtesting | Planned |
 | 7 | Streamlit web application | Planned |
 

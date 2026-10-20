@@ -10,7 +10,7 @@ This is also a learning project: every component is built step by step, with the
 
 ## Current status
 
-**Phases 1–2 complete: data pipeline and feature engineering.**
+**Phases 1–4 complete: data pipeline, feature engineering, market regimes and volatility forecasting.**
 
 **Market data (Phase 1, extended in Phase 2).** Tested functions in `src/cryptosense/data.py` fetch the full daily history for the watchlist (BTC/USDT, ETH/USDT and SOL/USDT) from Binance's public market data, with no API key required. The data is validated for duplicate dates, gaps, missing or invalid values, and inconsistent candles; the current, still-forming candle is excluded; and raw and processed datasets are saved locally and verified to reload identically.
 
@@ -21,13 +21,17 @@ This is also a learning project: every component is built step by step, with the
 
 - `notebooks/03_returns_eda.ipynb`: exploratory analysis of BTC returns (fat tails, volatility clustering, moving-average lag, volume behavior, and feature overlap), with written observations kept separate from interpretations
 
-**Testing.** 30 automated pytest tests cover the data and feature modules, including pagination edge cases tested against a simulated exchange.
-
-Upcoming phases cover market regime detection, volatility forecasting, setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
-
 **Market regimes (Phase 3).** `src/cryptosense/regimes.py` labels each day's trend ("up", "down" or "range") and volatility ("high" or "low", relative to the past year) using transparent rules, with a leakage test confirming the labels use only past data.
 
 - `notebooks/04_regimes.ipynb`: regime stability analysis and a K-means clustering study, which found moderate, seed-stable structure matching the rule dimensions but drifting on 2024+ data, and was therefore kept as analysis rather than adopted
+
+**Volatility forecasting (Phase 4).** Forecasts of BTC's realized volatility over the next 5 days, evaluated with a chronological train / validation / test split, purged boundaries, and a test set used once. Scaled recent volatility beat raw recent volatility in every validation and test year (by 8–11%). A Random Forest predicting volatility relative to its recent level performed comparably to that scaled baseline (worse on validation, better on test), so neither is established as better. Gradient boosting overfit the noisy target.
+
+- `notebooks/05_volatility_forecast.ipynb`: target construction, baselines, model comparison, overfitting diagnosis, error analysis by regime and year, and stated limitations
+
+**Testing.** 37 automated pytest tests cover the data, feature and regime modules, including pagination edge cases tested against a simulated exchange and leakage tests for features and regimes.
+
+Upcoming phases cover setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
 
 ## Tech stack
 
