@@ -18,6 +18,17 @@ from cryptosense.backtest import run_backtest, summarize_backtest
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
 
+REPLICATION_NOTES = {
+    "ETH/USDT": (
+        "Setups were designed on BTC/USDT. On ETH/USDT (notebook 08), neither setup showed an "
+        "advantage over random trades taken during uptrends."
+    ),
+    "SOL/USDT": (
+        "Setups were designed on BTC/USDT. On SOL/USDT (notebook 08), the continuation setup beat "
+        "an average day of the same year in every year since 2021, but the advantage has shrunk "
+        "from about +10% to about +2% per 5 days in recent years. The pullback setup underperformed."
+    ),
+}
 
 @st.cache_data
 def load_symbol(symbol):
@@ -136,8 +147,8 @@ with setups:
         "Setups are research candidates, not buy or sell signals. Rules were pre-registered "
         "and evaluated on BTC/USDT; historical statistics describe the past and are not a forecast."
     )
-    if symbol != "BTC/USDT":
-        st.warning(f"Setups were evaluated on BTC/USDT only. Results for {symbol} are untested.")
+    if symbol in REPLICATION_NOTES:
+        st.warning(REPLICATION_NOTES[symbol])
 
     for setup in SETUPS:
         e = explain_setup(df, last_date, setup)
@@ -205,9 +216,9 @@ with backtest:
         "one position at a time, all-in, 0.30% round-trip costs. Past performance does not "
         "guarantee future results."
     )
-    if symbol != "BTC/USDT":
-        st.warning(f"The strategy was evaluated on BTC/USDT only. Results for {symbol} are untested.")
-
+    if symbol in REPLICATION_NOTES:
+        st.warning(REPLICATION_NOTES[symbol])
+        
     period = st.radio("Period", ["Full history", "Held-out test (2024 onward)"], horizontal=True)
     start = "2024-01-01" if period.startswith("Held-out") else None
     summary_table, curves = run_strategies(symbol, start)
