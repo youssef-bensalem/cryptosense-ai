@@ -10,7 +10,7 @@ This is also a learning project: every component is built step by step, with the
 
 ## Current status
 
-**Phases 1–6 complete: data pipeline, feature engineering, market regimes, volatility forecasting, setup identification and backtesting.**
+**All seven phases complete: data pipeline, feature engineering, market regimes, volatility forecasting, setup identification, backtesting and a web dashboard.**
 
 **Market data (Phase 1, extended in Phase 2).** Tested functions in `src/cryptosense/data.py` fetch the full daily history for the watchlist (BTC/USDT, ETH/USDT and SOL/USDT) from Binance's public market data, with no API key required. The data is validated for duplicate dates, gaps, missing or invalid values, and inconsistent candles; the current, still-forming candle is excluded; and raw and processed datasets are saved locally and verified to reload identically.
 
@@ -37,9 +37,13 @@ This is also a learning project: every component is built step by step, with the
 
 - `notebooks/07_backtest.ipynb`: development and held-out backtests, cost sensitivity, random-entry baselines, regime breakdown, and predictions recorded before the held-out run
 
-**Testing.** 50 automated pytest tests cover the data, feature, regime, setup and backtest modules, including pagination edge cases tested against a simulated exchange, leakage tests for features, regimes and setup explanations, and hand-checkable backtest cases (next-day-open entry, no overlapping trades, costs, drawdown during trades).
+**Web dashboard (Phase 7).** `app/main.py` is a local Streamlit dashboard with five tabs: market overview, market conditions, setup research, volatility, and backtesting. It loads processed data from disk and refreshes it from Binance only when the "Refresh data" button is clicked, running the tested pipeline and showing each symbol's validation result. The dashboard contains no analysis logic: every number comes from the tested modules, and results for ETH and SOL are clearly marked as untested where the research was done on BTC only.
 
-The remaining phase is the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
+- `src/cryptosense/volatility.py`: point-in-time scaled volatility forecast shared by the dashboard and the setup explanations
+
+**Testing.** 55 automated pytest tests cover the data, feature, regime, setup, volatility and backtest modules, including pagination edge cases tested against a simulated exchange, leakage tests for features, regimes, setup explanations and the volatility forecast, an end-to-end test of the data refresh pipeline, and hand-checkable backtest cases.
+
+The roadmap is complete. Possible extensions are listed under "Future enhancements" in [ROADMAP.md](ROADMAP.md).
 
 ## Tech stack
 
@@ -47,9 +51,10 @@ The remaining phase is the web dashboard. See [ROADMAP.md](ROADMAP.md) for the f
 - **CCXT** for market data
 - **pandas** for data processing
 - **Plotly** for interactive charts
+- **Streamlit** for the web dashboard
 - **Git and GitHub** for version control
 
-Planned for later phases: scikit-learn, pytest, and Streamlit.
+Planned for later phases: scikit-learn and pytest.
 
 ## Getting started
 
@@ -65,10 +70,22 @@ python -m pip install -r requirements.txt
 
 Open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.venv` kernel, and use **Restart** then **Run All**. The notebook creates the `data/` folder, downloads the data, validates and saves it, and draws the charts. Data files are generated locally and are not stored in the repository.
 
+### Running the dashboard
+
+From the project root, with the virtual environment active:
+
+```
+streamlit run app/main.py
+```
+
+The dashboard opens in your browser (usually at http://localhost:8501). On a fresh clone there is no data yet: click **Refresh data from Binance** in the sidebar to download and validate it. Stop the dashboard with Ctrl+C in the terminal.
+
 ## Project structure
 
 ```
 cryptosense-ai/
+├── app/                # Streamlit dashboard
+│   └── main.py                 # dashboard entry point
 ├── notebooks/          # step-by-step development notebooks
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
@@ -76,12 +93,14 @@ cryptosense-ai/
 │       ├── backtest.py         # fixed-holding-period backtester and metrics
 │       ├── data.py             # market data fetching and preparation
 │       ├── features.py         # feature engineering
-│       └── setups.py           # rule-based setups and explanations
+│       ├── setups.py           # rule-based setups and explanations
+│       └── volatility.py       # point-in-time volatility forecast
 ├── tests/
 │   ├── test_backtest.py        # tests for the backtester
 │   ├── test_data.py            # tests for the data module
 │   ├── test_features.py        # tests for the features module, incl. leakage
-│   └── test_setups.py          # tests for the setups module, incl. leakage
+│   ├── test_setups.py          # tests for the setups module, incl. leakage
+│   └── test_volatility.py      # tests for the volatility forecast, incl. leakage
 ├── data/               # generated locally: raw/ and processed/ (not committed)
 ├── pyproject.toml      # package definition for the editable install
 ├── requirements.txt    # pinned dependencies

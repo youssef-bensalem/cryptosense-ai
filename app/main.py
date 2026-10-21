@@ -8,7 +8,7 @@ import ccxt
 import plotly.express as px
 import streamlit as st
 
-from cryptosense.data import load_processed, refresh_symbol
+from cryptosense.data import load_processed, refresh_symbol, symbol_to_slug
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
@@ -71,6 +71,11 @@ if "refresh_results" in st.session_state:
     for r in st.session_state["refresh_results"]:
         problems = "clean" if not r["problems"] else f"problems: {r['problems']}"
         st.sidebar.caption(f"{r['symbol']}: {r['rows']} days to {r['last_date']} ({problems})")
+
+processed_file = DATA_DIR / "processed" / f"{symbol_to_slug(symbol)}_1d.csv"
+if not processed_file.exists():
+    st.info(f"No data for {symbol} yet. Click **Refresh data from Binance** in the sidebar to download it.")
+    st.stop()
 
 df = load_symbol(symbol)
 
