@@ -2,6 +2,49 @@ import pandas as pd
 from pathlib import Path
 DAY_MS = 86_400_000
 
+TIMEFRAME_UNIT_MS = {
+    "m": 60_000,
+    "h": 3_600_000,
+    "d": DAY_MS,
+    "w": 7 * DAY_MS,
+}
+
+
+def timeframe_to_ms(timeframe):
+
+    """Convert a timeframe string such as ``"15m"`` or ``"1d"`` into milliseconds.
+
+    A pure replacement for ``exchange.parse_timeframe()`` that needs no
+    exchange object. Supported units are ``m`` (minutes), ``h`` (hours),
+    ``d`` (days) and ``w`` (weeks). Months and years are rejected because
+    their length varies.
+
+    Parameters
+    ----------
+    timeframe : str
+        A positive integer followed by a unit, e.g. ``"15m"``, ``"1h"``,
+        ``"4h"`` or ``"1d"``.
+
+    Returns
+    -------
+    int
+        Duration of one candle in milliseconds.
+
+    Raises
+    ------
+    ValueError
+        If the timeframe is not a positive integer followed by a supported unit.
+    """
+
+    amount, unit = timeframe[:-1], timeframe[-1:]
+    if unit not in TIMEFRAME_UNIT_MS or not amount.isdigit() or int(amount) == 0:
+        raise ValueError(
+            f"Unsupported timeframe {timeframe!r}: expected a positive integer "
+            f"followed by one of {sorted(TIMEFRAME_UNIT_MS)}, e.g. '15m' or '1d'."
+        )
+    return int(amount) * TIMEFRAME_UNIT_MS[unit]
+
+
 def fetch_ohlcv_history(exchange,
                          symbol, 
                          timeframe="1d", 
@@ -79,24 +122,31 @@ def candles_to_dataframe(candles):
     return df
 
 
-def validate_ohlcv(df):
+def validate_ohlcv(df, timeframe="1d"):
 
-    """Run data-quality checks on a daily OHLCV DataFrame and report the results.
+    """Run data-quality checks on an OHLCV DataFrame and report the results.
 
-    Assumes daily candles: gaps are measured against one day (``DAY_MS``).
+    Gaps are measured against the candle duration of ``timeframe``.
     The DataFrame is not modified; problems are counted, not fixed.
 
     Parameters
     ----------
     df : pandas.DataFrame
         Output of ``candles_to_dataframe``.
+    timeframe : str, default "1d"
+        Candle size of ``df``, e.g. ``"1d"`` or ``"15m"``; see
+        ``timeframe_to_ms``.
 
     Returns
     -------
     dict
         One entry per check. ``"sorted"`` is a bool; every other value is
-        an int count, where 0 means no problem found.
+        an int count, where 0 means no problem found. The keys keep their
+        daily names for every timeframe: ``"missing_days"`` counts missing
+        candles and ``"zero_volume_days"`` counts zero-volume candles.
     """
+
+    candle_ms = timeframe_to_ms(timeframe)
 
     price_cols = ["open", "high", "low", "close"]
 
@@ -108,8 +158,8 @@ def validate_ohlcv(df):
 
     # 3. Gaps
     diffs = df["timestamp"].diff()
-    gaps = diffs[diffs > DAY_MS]
-    missing_days = int((gaps / DAY_MS - 1).sum())
+    gaps = diffs[diffs > candle_ms]
+    missing_days = int((gaps / candle_ms - 1).sum())
 
     # 4. Missing values
     missing_values = int(df.isna().sum().sum())
@@ -140,12 +190,12 @@ def validate_ohlcv(df):
 
 
 
-def drop_incomplete_candles(df, now_ms):
+def drop_incomplete_candles(df, now_ms, timeframe="1d"):
 
     """Remove candles whose period has not finished yet.
 
-    Assumes daily candles: a candle is complete once its full day
-    (``timestamp + DAY_MS``) has passed.
+    A candle is complete once its full period (``timestamp`` plus the
+    candle duration of ``timeframe``) has passed.
 
     Parameters
     ----------
@@ -154,6 +204,9 @@ def drop_incomplete_candles(df, now_ms):
     now_ms : int
         Current time in milliseconds since the epoch (UTC), e.g. from
         ``exchange.milliseconds()``. Passed in so tests can use a fixed time.
+    timeframe : str, default "1d"
+        Candle size of ``df``, e.g. ``"1d"`` or ``"15m"``; see
+        ``timeframe_to_ms``.
 
     Returns
     -------
@@ -161,7 +214,7 @@ def drop_incomplete_candles(df, now_ms):
         A new DataFrame containing only complete candles.
     """
         
-    is_complete = df["timestamp"] + DAY_MS <= now_ms
+    is_complete = df["timestamp"] + timeframe_to_ms(timeframe) <= now_ms
 
     return df[is_complete]
 
@@ -194,13 +247,14 @@ def symbol_to_slug(symbol):
     return new
 
 
-def save_dataset(raw_candles, df, symbol, data_dir):
+def save_dataset(raw_candles, df, symbol, data_dir, timeframe="1d"):
 
     """Save raw and processed data for one symbol as CSV files.
 
-    Writes ``<data_dir>/raw/<slug>_1d_raw.csv`` (candles exactly as fetched)
-    and ``<data_dir>/processed/<slug>_1d.csv`` (validated DataFrame, with its
-    ``date`` index as the first column). Folders are created if needed.
+    Writes ``<data_dir>/raw/<slug>_<timeframe>_raw.csv`` (candles exactly as
+    fetched) and ``<data_dir>/processed/<slug>_<timeframe>.csv`` (validated
+    DataFrame, with its ``date`` index as the first column), e.g.
+    ``btc_usdt_1d.csv`` or ``btc_usdt_15m.csv``. Folders are created if needed.
 
     Parameters
     ----------
@@ -212,6 +266,8 @@ def save_dataset(raw_candles, df, symbol, data_dir):
         Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
     data_dir : pathlib.Path
         Root data folder chosen by the caller.
+    timeframe : str, default "1d"
+        Candle size of the data, used in the file names.
 
     Returns
     -------
@@ -226,8 +282,8 @@ def save_dataset(raw_candles, df, symbol, data_dir):
 
     slug=symbol_to_slug(symbol)
 
-    raw_path=raw_dir / f"{slug}_1d_raw.csv"
-    processed_path=processed_dir / f"{slug}_1d.csv"
+    raw_path=raw_dir / f"{slug}_{timeframe}_raw.csv"
+    processed_path=processed_dir / f"{slug}_{timeframe}.csv"
 
     raw_df = pd.DataFrame(raw_candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
     raw_df.to_csv(raw_path, index=False)
@@ -237,7 +293,7 @@ def save_dataset(raw_candles, df, symbol, data_dir):
     return raw_path, processed_path
 
 
-def load_processed(symbol, data_dir):
+def load_processed(symbol, data_dir, timeframe="1d"):
 
     """Load one symbol's processed CSV with the exact types it was saved with.
 
@@ -251,6 +307,8 @@ def load_processed(symbol, data_dir):
         Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
     data_dir : pathlib.Path
         Root data folder, the same one passed to ``save_dataset``.
+    timeframe : str, default "1d"
+        Candle size of the file to load, the same one passed to ``save_dataset``.
 
     Returns
     -------
@@ -259,7 +317,7 @@ def load_processed(symbol, data_dir):
     """
 
     slug=symbol_to_slug(symbol)
-    processed_path=data_dir / "processed" / f"{slug}_1d.csv"
+    processed_path=data_dir / "processed" / f"{slug}_{timeframe}.csv"
 
     reloaded = pd.read_csv(processed_path)
     reloaded["date"] = pd.to_datetime(reloaded["timestamp"], unit="ms", utc=True)
@@ -268,7 +326,7 @@ def load_processed(symbol, data_dir):
     return reloaded
 
 
-def refresh_symbol(exchange, symbol, data_dir, now_ms):
+def refresh_symbol(exchange, symbol, data_dir, now_ms, timeframe="1d"):
     """Run the full data pipeline for one symbol and save the results.
 
     Fetches the full history, validates it, drops incomplete candles, and
@@ -284,6 +342,8 @@ def refresh_symbol(exchange, symbol, data_dir, now_ms):
         Root data folder.
     now_ms : int
         Current time in milliseconds (UTC), used to drop incomplete candles.
+    timeframe : str, default "1d"
+        Candle size to fetch, validate and save, e.g. ``"1d"`` or ``"15m"``.
 
     Returns
     -------
@@ -291,11 +351,11 @@ def refresh_symbol(exchange, symbol, data_dir, now_ms):
         ``symbol``, number of processed ``rows``, ``last_date`` and the
         ``problems`` found by validation (an empty dict means clean data).
     """
-    candles = fetch_ohlcv_history(exchange, symbol)
+    candles = fetch_ohlcv_history(exchange, symbol, timeframe=timeframe)
     df = candles_to_dataframe(candles)
-    report = validate_ohlcv(df)
-    df = drop_incomplete_candles(df, now_ms)
-    save_dataset(candles, df, symbol, data_dir)
+    report = validate_ohlcv(df, timeframe)
+    df = drop_incomplete_candles(df, now_ms, timeframe)
+    save_dataset(candles, df, symbol, data_dir, timeframe)
 
     problems = {
         check: result

@@ -12,6 +12,7 @@ from cryptosense.data import (
     save_dataset,
     load_processed,
     refresh_symbol,
+    timeframe_to_ms,
 )
 
 START_MS = 1_704_067_200_000
@@ -176,3 +177,110 @@ def test_refresh_symbol_runs_the_full_pipeline(tmp_path):
     loaded = load_processed("BTC/USDT", tmp_path)
     assert len(loaded) == 9
     assert (tmp_path / "raw" / "btc_usdt_1d_raw.csv").exists()
+
+
+# Timeframes other than 1d
+
+MINUTE_MS = 60_000
+FIFTEEN_MIN_MS = 15 * MINUTE_MS
+
+
+def make_15m_candles(n):
+    """Return n clean, consecutive 15-minute candles starting 2024-01-01."""
+    return [[START_MS + i * FIFTEEN_MIN_MS, 100.0, 110.0, 90.0, 105.0, 50.0] for i in range(n)]
+
+
+@pytest.mark.parametrize(
+    "timeframe, expected",
+    [
+        ("1m", MINUTE_MS),
+        ("15m", FIFTEEN_MIN_MS),
+        ("1h", 60 * MINUTE_MS),
+        ("4h", 4 * 60 * MINUTE_MS),
+        ("1d", DAY_MS),
+        ("1w", 7 * DAY_MS),
+    ],
+)
+def test_timeframe_to_ms(timeframe, expected):
+    assert timeframe_to_ms(timeframe) == expected
+
+
+@pytest.mark.parametrize("timeframe", ["", "d", "0h", "-1h", "1.5h", "15", "1M", "1y", "15min"])
+def test_timeframe_to_ms_rejects_invalid(timeframe):
+    with pytest.raises(ValueError):
+        timeframe_to_ms(timeframe)
+
+
+def test_clean_15m_data_reports_no_problems():
+    report = validate_ohlcv(candles_to_dataframe(make_15m_candles(10)), "15m")
+
+    assert report["sorted"] is True
+    for check, result in report.items():
+        if check != "sorted":
+            assert result == 0, f"{check} reported {result} on clean 15m data"
+
+
+def test_detects_gap_in_15m_data():
+    candles = make_15m_candles(10)
+    del candles[4:7]  # remove three consecutive 15-minute candles
+    report = validate_ohlcv(candles_to_dataframe(candles), "15m")
+
+    assert report["gaps"] == 1
+    assert report["missing_days"] == 3  # counts missing candles
+
+
+def test_15m_data_validated_as_daily_reports_no_gaps():
+    # Shows that the timeframe matters: 15-minute spacing is never wider than a day.
+    candles = make_15m_candles(10)
+    del candles[4:7]
+    report = validate_ohlcv(candles_to_dataframe(candles))
+
+    assert report["gaps"] == 0
+
+
+def test_drop_incomplete_15m_candles_at_boundary():
+    df = candles_to_dataframe(make_15m_candles(3))
+    at_end = drop_incomplete_candles(df, START_MS + 3 * FIFTEEN_MIN_MS, "15m")
+    just_before = drop_incomplete_candles(df, START_MS + 3 * FIFTEEN_MIN_MS - 1, "15m")
+
+    assert len(at_end) == 3
+    assert len(just_before) == 2
+
+
+def test_save_dataset_15m_file_names(tmp_path):
+    candles = make_15m_candles(3)
+    raw_path, processed_path = save_dataset(
+        candles, candles_to_dataframe(candles), "BTC/USDT", tmp_path, timeframe="15m"
+    )
+
+    assert raw_path == tmp_path / "raw" / "btc_usdt_15m_raw.csv"
+    assert processed_path == tmp_path / "processed" / "btc_usdt_15m.csv"
+
+
+def test_15m_and_1d_files_are_kept_separate(tmp_path):
+    daily = make_candles(5)
+    intraday = make_15m_candles(8)
+    daily_df = candles_to_dataframe(daily)
+    intraday_df = candles_to_dataframe(intraday)
+
+    save_dataset(daily, daily_df, "BTC/USDT", tmp_path)
+    save_dataset(intraday, intraday_df, "BTC/USDT", tmp_path, timeframe="15m")
+
+    pd.testing.assert_frame_equal(load_processed("BTC/USDT", tmp_path), daily_df)
+    pd.testing.assert_frame_equal(
+        load_processed("BTC/USDT", tmp_path, timeframe="15m"), intraday_df
+    )
+
+
+def test_refresh_symbol_15m_runs_the_full_pipeline(tmp_path):
+    candles = make_15m_candles(10)
+    exchange = FakeExchange(candles)
+    now_ms = START_MS + 9 * FIFTEEN_MIN_MS + 1  # candle 10 has started but not finished
+
+    result = refresh_symbol(exchange, "BTC/USDT", tmp_path, now_ms, timeframe="15m")
+
+    assert result["rows"] == 9            # incomplete last candle dropped
+    assert result["problems"] == {}
+    assert len(load_processed("BTC/USDT", tmp_path, timeframe="15m")) == 9
+    assert (tmp_path / "raw" / "btc_usdt_15m_raw.csv").exists()
+    assert not (tmp_path / "processed" / "btc_usdt_1d.csv").exists()
