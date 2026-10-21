@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pandas as pd
+import numpy as np
 import plotly.express as px
 import streamlit as st
 
@@ -49,7 +50,36 @@ with overview:
     volume_fig = px.bar(df, y="volume", title=f"{symbol} daily volume (base asset units)")
     st.plotly_chart(volume_fig, width="stretch")
 
-for tab in (conditions, setups, volatility, backtest):
+with conditions:
+    today = df.iloc[-1]
+    st.subheader(f"Current conditions ({last_date.date()})")
+
+    col1, col2 = st.columns(2)
+    col1.metric("Trend regime", str(today["trend"]))
+    col2.metric("Volatility regime", str(today["vol_regime"]))
+    st.caption(
+        "Trend: up = above the 100-day average with positive 20-day momentum; "
+        "down = both negative; range = they disagree. "
+        "Volatility: high/low relative to its median over the previous 365 days."
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("20-day momentum", f"{np.exp(today['mom_20']) - 1:+.1%}")
+    col2.metric("Distance from 100-day average", f"{today['dist_sma_100']:+.1%}")
+    col3.metric("Volatility (20d, annualised)", f"{today['vol_20'] * np.sqrt(365):.0%}")
+    col4.metric("Efficiency ratio (20d)", f"{today['er_20']:.2f}")
+
+    regime_fig = px.scatter(
+        df.dropna(subset=["trend"]), y="close", color="trend", log_y=True,
+        color_discrete_map={"up": "#2ca02c", "down": "#d62728", "range": "#7f7f7f"},
+        title=f"{symbol} trend regimes",
+    )
+    regime_fig.update_traces(marker={"size": 3})
+    st.plotly_chart(regime_fig, width="stretch")
+
+    shares = df["trend"].value_counts(normalize=True).rename("share of days")
+    st.dataframe(shares.to_frame().style.format("{:.1%}"))
+
+for tab in (setups, volatility, backtest):
     with tab:
         st.info("Coming in the next milestones.")
-        
