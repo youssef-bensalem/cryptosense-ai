@@ -10,7 +10,7 @@ This is also a learning project: every component is built step by step, with the
 
 ## Current status
 
-**Phases 1–5 complete: data pipeline, feature engineering, market regimes, volatility forecasting and setup identification.**
+**Phases 1–6 complete: data pipeline, feature engineering, market regimes, volatility forecasting, setup identification and backtesting.**
 
 **Market data (Phase 1, extended in Phase 2).** Tested functions in `src/cryptosense/data.py` fetch the full daily history for the watchlist (BTC/USDT, ETH/USDT and SOL/USDT) from Binance's public market data, with no API key required. The data is validated for duplicate dates, gaps, missing or invalid values, and inconsistent candles; the current, still-forming candle is excluded; and raw and processed datasets are saved locally and verified to reload identically.
 
@@ -33,9 +33,13 @@ This is also a learning project: every component is built step by step, with the
 
 - `notebooks/06_setups.ipynb`: pre-registered rules, episode counting, development and held-out results, confound analysis, and explanation examples
 
-**Testing.** 43 automated pytest tests cover the data, feature, regime and setup modules, including pagination edge cases tested against a simulated exchange and leakage tests for features, regimes and setup explanations.
+**Backtesting (Phase 6).** `src/cryptosense/backtest.py` simulates long-only, fixed-holding-period trading with next-day-open execution, one position at a time and 0.30% round-trip costs, and reports total return, volatility, maximum drawdown, number of trades, time in the market, win rate and average trade. On BTC, the continuation setup remained profitable after costs on held-out data (2024 onward: average trade +2.8% / +4.9% for 5- / 10-day holds, maximum drawdown −11% / −15% versus −53% for buy-and-hold), with a better return per unit of risk but a lower total return than buy-and-hold. Its advantage over random trades taken during uptrends is suggestive but not established, and an exploratory low-volatility filter suggested by development data did not replicate. The pullback setup showed no edge after costs.
 
-Upcoming phases cover backtesting and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
+- `notebooks/07_backtest.ipynb`: development and held-out backtests, cost sensitivity, random-entry baselines, regime breakdown, and predictions recorded before the held-out run
+
+**Testing.** 50 automated pytest tests cover the data, feature, regime, setup and backtest modules, including pagination edge cases tested against a simulated exchange, leakage tests for features, regimes and setup explanations, and hand-checkable backtest cases (next-day-open entry, no overlapping trades, costs, drawdown during trades).
+
+The remaining phase is the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
 
 ## Tech stack
 
@@ -69,10 +73,12 @@ cryptosense-ai/
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── backtest.py         # fixed-holding-period backtester and metrics
 │       ├── data.py             # market data fetching and preparation
 │       ├── features.py         # feature engineering
 │       └── setups.py           # rule-based setups and explanations
 ├── tests/
+│   ├── test_backtest.py        # tests for the backtester
 │   ├── test_data.py            # tests for the data module
 │   ├── test_features.py        # tests for the features module, incl. leakage
 │   └── test_setups.py          # tests for the setups module, incl. leakage

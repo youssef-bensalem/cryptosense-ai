@@ -83,15 +83,18 @@ cryptosense-ai/
 │   ├── 03_returns_eda.ipynb              # returns, volatility and feature analysis
 │   ├── 04_regimes.ipynb                  # rule-based regimes and K-means study
 │   ├── 05_volatility_forecast.ipynb      # 5-day volatility forecasting and evaluation
-│   └── 06_setups.ipynb                   # pre-registered setups and held-out evaluation
+│   ├── 06_setups.ipynb                   # pre-registered setups and held-out evaluation
+│   └── 07_backtest.ipynb                 # backtests, baselines and held-out evaluation
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── backtest.py         # fixed-holding-period backtester and metrics
 │       ├── data.py             # market data fetching and preparation
 │       ├── features.py         # feature engineering
 │       ├── regimes.py          # rule-based market regimes
 │       └── setups.py           # rule-based setups and explanations
 ├── tests/
+│   ├── test_backtest.py        # tests for the backtester
 │   ├── test_data.py            # tests for the data module
 │   ├── test_features.py        # tests for the features module, incl. leakage
 │   ├── test_regimes.py         # tests for the regimes module, incl. leakage
@@ -123,8 +126,8 @@ Planned additions, each introduced only when there is a reason for it:
 | 3 | Market regime detection | ✅ Complete |
 | 4 | Machine learning for volatility forecasting | ✅ Complete |
 | 5 | Potential setup identification | ✅ Complete |
-| 6 | Historical evaluation and backtesting | ⏭️ Next |
-| 7 | Streamlit web application | Planned |
+| 6 | Historical evaluation and backtesting | ✅ Complete |
+| 7 | Streamlit web application | ⏭️ Next |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -215,11 +218,13 @@ The project environment was set up with Python 3.12, an isolated virtual environ
 
 **Definition of done**
 
-- [ ] All assumptions documented: fees, slippage, position sizing, entry and exit timing
-- [ ] Protection against look-ahead bias verified, so that each decision uses only data available at that time
-- [ ] Metrics reported, including total return, maximum drawdown, volatility, number of trades, and time in the market
-- [ ] Results broken down by market regime
-- [ ] Final test period not used for strategy tuning
+- [x] All assumptions documented: fees, slippage, position sizing, entry and exit timing
+- [x] Protection against look-ahead bias verified, so that each decision uses only data available at that time
+- [x] Metrics reported, including total return, maximum drawdown, volatility, number of trades, and time in the market
+- [x] Results broken down by market regime
+- [x] Final test period not used for strategy tuning
+
+**Limitation:** evaluated on BTC/USDT only, with 11–12 held-out trades per holding period; costs are assumptions that should be checked against the current exchange fee schedule.
 
 ### Phase 7 — Streamlit web application
 
@@ -251,6 +256,10 @@ These are considered only after the core application is stable, and only when th
 - **ML filter for setups**: revisit once far more episodes are available (for example by pooling setups across BTC, ETH and SOL), evaluated against the rule-based setups with the same pre-registered, held-out protocol.
 - **Borderline marker in explanations**: highlight conditions that only just pass their threshold (for example relative volume 1.55 against a threshold of 1.5).
 - **Multi-asset replication of setups**: apply the unchanged pre-registered rules to ETH/USDT and SOL/USDT as independent evidence.
+- **Multi-asset backtests**: run the unchanged continuation strategy on ETH/USDT and SOL/USDT as independent evidence.
+- **Trend-holding baseline**: a strategy that holds whenever the trend regime is "up", to test whether the setup adds value beyond trading during uptrends.
+- **Volatility-based position sizing**: size positions using the Phase 4 volatility forecast instead of investing the whole account in each trade.
+- **Walk-forward backtesting**: repeated chronological evaluation instead of a single held-out period.
 
 LLMs, RAG pipelines, vector databases, deep learning frameworks, and agent frameworks are deliberately excluded unless a specific problem requires them.
 
