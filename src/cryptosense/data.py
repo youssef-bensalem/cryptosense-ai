@@ -266,3 +266,40 @@ def load_processed(symbol, data_dir):
     reloaded = reloaded.set_index("date")
 
     return reloaded
+
+
+def refresh_symbol(exchange, symbol, data_dir, now_ms):
+    """Run the full data pipeline for one symbol and save the results.
+
+    Fetches the full history, validates it, drops incomplete candles, and
+    saves raw and processed files with ``save_dataset``.
+
+    Parameters
+    ----------
+    exchange : ccxt.Exchange
+        Exchange object created by the caller.
+    symbol : str
+        Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
+    data_dir : pathlib.Path
+        Root data folder.
+    now_ms : int
+        Current time in milliseconds (UTC), used to drop incomplete candles.
+
+    Returns
+    -------
+    dict
+        ``symbol``, number of processed ``rows``, ``last_date`` and the
+        ``problems`` found by validation (an empty dict means clean data).
+    """
+    candles = fetch_ohlcv_history(exchange, symbol)
+    df = candles_to_dataframe(candles)
+    report = validate_ohlcv(df)
+    df = drop_incomplete_candles(df, now_ms)
+    save_dataset(candles, df, symbol, data_dir)
+
+    problems = {
+        check: result
+        for check, result in report.items()
+        if (check == "sorted" and result is not True) or (check != "sorted" and result != 0)
+    }
+    return {"symbol": symbol, "rows": len(df), "last_date": df.index[-1].date(), "problems": problems}

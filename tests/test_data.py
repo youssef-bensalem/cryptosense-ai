@@ -11,6 +11,7 @@ from cryptosense.data import (
     symbol_to_slug,
     save_dataset,
     load_processed,
+    refresh_symbol,
 )
 
 START_MS = 1_704_067_200_000
@@ -161,3 +162,17 @@ def test_save_and_load_round_trip(tmp_path):
     assert raw_path.exists()
     assert processed_path.exists()
     pd.testing.assert_frame_equal(df, loaded)
+
+
+def test_refresh_symbol_runs_the_full_pipeline(tmp_path):
+    candles = make_candles(10)
+    exchange = FakeExchange(candles)
+    now_ms = START_MS + 9 * DAY_MS + 1  # day 10 has started but not finished
+
+    result = refresh_symbol(exchange, "BTC/USDT", tmp_path, now_ms)
+
+    assert result["rows"] == 9            # incomplete last candle dropped
+    assert result["problems"] == {}
+    loaded = load_processed("BTC/USDT", tmp_path)
+    assert len(loaded) == 9
+    assert (tmp_path / "raw" / "btc_usdt_1d_raw.csv").exists()

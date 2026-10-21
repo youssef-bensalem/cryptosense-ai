@@ -4,10 +4,11 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
+import ccxt
 import plotly.express as px
 import streamlit as st
 
-from cryptosense.data import load_processed
+from cryptosense.data import load_processed, refresh_symbol
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
@@ -52,6 +53,25 @@ st.title("CryptoSense AI")
 st.caption("Research and decision support only. Not financial advice; no trades are placed.")
 
 symbol = st.sidebar.selectbox("Asset", WATCHLIST)
+
+if st.sidebar.button("Refresh data from Binance"):
+    try:
+        with st.sidebar.status("Fetching and validating data..."):
+            exchange = ccxt.binance()
+            now_ms = exchange.milliseconds()
+            results = [refresh_symbol(exchange, s, DATA_DIR, now_ms) for s in WATCHLIST]
+    except Exception as error:
+        st.sidebar.error(f"Refresh failed: {error}. Any symbols updated before the error were kept.")
+    else:
+        st.cache_data.clear()
+        st.session_state["refresh_results"] = results
+        st.rerun()
+
+if "refresh_results" in st.session_state:
+    for r in st.session_state["refresh_results"]:
+        problems = "clean" if not r["problems"] else f"problems: {r['problems']}"
+        st.sidebar.caption(f"{r['symbol']}: {r['rows']} days to {r['last_date']} ({problems})")
+
 df = load_symbol(symbol)
 
 last_date = df.index[-1]
