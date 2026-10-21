@@ -82,17 +82,20 @@ cryptosense-ai/
 │   ├── 02_fetch_watchlist.ipynb          # pipeline for BTC, ETH and SOL
 │   ├── 03_returns_eda.ipynb              # returns, volatility and feature analysis
 │   ├── 04_regimes.ipynb                  # rule-based regimes and K-means study
-│   └── 05_volatility_forecast.ipynb      # 5-day volatility forecasting and evaluation
+│   ├── 05_volatility_forecast.ipynb      # 5-day volatility forecasting and evaluation
+│   └── 06_setups.ipynb                   # pre-registered setups and held-out evaluation
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
 │       ├── data.py             # market data fetching and preparation
 │       ├── features.py         # feature engineering
-│       └── regimes.py          # rule-based market regimes
+│       ├── regimes.py          # rule-based market regimes
+│       └── setups.py           # rule-based setups and explanations
 ├── tests/
 │   ├── test_data.py            # tests for the data module
 │   ├── test_features.py        # tests for the features module, incl. leakage
-│   └── test_regimes.py         # tests for the regimes module, incl. leakage
+│   ├── test_regimes.py         # tests for the regimes module, incl. leakage
+│   └── test_setups.py          # tests for the setups module, incl. leakage
 ├── .gitignore
 ├── pyproject.toml              # package definition for the editable install
 ├── README.md
@@ -119,8 +122,8 @@ Planned additions, each introduced only when there is a reason for it:
 | 2 | Exploratory analysis and feature engineering | ✅ Complete |
 | 3 | Market regime detection | ✅ Complete |
 | 4 | Machine learning for volatility forecasting | ✅ Complete |
-| 5 | Potential setup identification | ⏭️ Next |
-| 6 | Historical evaluation and backtesting | Planned |
+| 5 | Potential setup identification | ✅ Complete |
+| 6 | Historical evaluation and backtesting | ⏭️ Next |
 | 7 | Streamlit web application | Planned |
 
 ### Phase 1 — Project setup and market data ✅
@@ -197,10 +200,12 @@ The project environment was set up with Python 3.12, an isolated virtual environ
 
 **Definition of done**
 
-- [ ] Each flagged setup shows which conditions were detected and which features contributed
-- [ ] Each setup shows the current regime, relevant volatility estimates, and historical outcomes of similar setups where available
-- [ ] Every explanation is generated from actual data, with uncertainty and limitations stated
-- [ ] Any ML enhancement is compared against the rule-based baseline
+- [x] Each flagged setup shows which conditions were detected and which features contributed
+- [x] Each setup shows the current regime, relevant volatility estimates, and historical outcomes of similar setups where available
+- [x] Every explanation is generated from actual data, with uncertainty and limitations stated
+- [x] Any ML enhancement is compared against the rule-based baseline — no ML enhancement adopted: with 34 development and 17 held-out episodes, an ML filter could not be trained and validated without overfitting (see Future enhancements)
+
+**Limitation:** setups were evaluated on BTC/USDT only.
 
 ### Phase 6 — Historical evaluation and backtesting
 
@@ -243,6 +248,9 @@ These are considered only after the core application is stable, and only when th
 - **Continuous integration**, with GitHub Actions running the pytest suite on every push
 - **Online deployment**, if the application is stable and deployment is worthwhile
 - **FastAPI or a separate frontend**, only if Streamlit becomes a real limitation
+- **ML filter for setups**: revisit once far more episodes are available (for example by pooling setups across BTC, ETH and SOL), evaluated against the rule-based setups with the same pre-registered, held-out protocol.
+- **Borderline marker in explanations**: highlight conditions that only just pass their threshold (for example relative volume 1.55 against a threshold of 1.5).
+- **Multi-asset replication of setups**: apply the unchanged pre-registered rules to ETH/USDT and SOL/USDT as independent evidence.
 
 LLMs, RAG pipelines, vector databases, deep learning frameworks, and agent frameworks are deliberately excluded unless a specific problem requires them.
 

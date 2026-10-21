@@ -10,7 +10,7 @@ This is also a learning project: every component is built step by step, with the
 
 ## Current status
 
-**Phases 1–4 complete: data pipeline, feature engineering, market regimes and volatility forecasting.**
+**Phases 1–5 complete: data pipeline, feature engineering, market regimes, volatility forecasting and setup identification.**
 
 **Market data (Phase 1, extended in Phase 2).** Tested functions in `src/cryptosense/data.py` fetch the full daily history for the watchlist (BTC/USDT, ETH/USDT and SOL/USDT) from Binance's public market data, with no API key required. The data is validated for duplicate dates, gaps, missing or invalid values, and inconsistent candles; the current, still-forming candle is excluded; and raw and processed datasets are saved locally and verified to reload identically.
 
@@ -29,9 +29,13 @@ This is also a learning project: every component is built step by step, with the
 
 - `notebooks/05_volatility_forecast.ipynb`: target construction, baselines, model comparison, overfitting diagnosis, error analysis by regime and year, and stated limitations
 
-**Testing.** 37 automated pytest tests cover the data, feature and regime modules, including pagination edge cases tested against a simulated exchange and leakage tests for features and regimes.
+**Setup identification (Phase 5).** `src/cryptosense/setups.py` defines two pre-registered, long-only setups (pullback in an uptrend; volume-confirmed continuation) in a single rule table, and produces point-in-time explanations: the conditions met with their values, the current regimes, a volatility forecast with the typical 5-day move, and the outcomes of past episodes compared with the same-regime base rate, with their standard error. Evaluated on BTC with a development period and a held-out test run once, the pullback setup showed no edge, while the continuation setup showed a modest advantage (about +1.4% to +1.8% per 5 days over an average day in the same period) that replicated on held-out data but rests on few episodes and is not statistically established. Trading costs are not yet included.
 
-Upcoming phases cover setup identification, backtesting, and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
+- `notebooks/06_setups.ipynb`: pre-registered rules, episode counting, development and held-out results, confound analysis, and explanation examples
+
+**Testing.** 43 automated pytest tests cover the data, feature, regime and setup modules, including pagination edge cases tested against a simulated exchange and leakage tests for features, regimes and setup explanations.
+
+Upcoming phases cover backtesting and the web dashboard. See [ROADMAP.md](ROADMAP.md) for the full plan and progress.
 
 ## Tech stack
 
@@ -66,10 +70,12 @@ cryptosense-ai/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
 │       ├── data.py             # market data fetching and preparation
-│       └── features.py         # feature engineering
+│       ├── features.py         # feature engineering
+│       └── setups.py           # rule-based setups and explanations
 ├── tests/
 │   ├── test_data.py            # tests for the data module
-│   └── test_features.py        # tests for the features module, incl. leakage
+│   ├── test_features.py        # tests for the features module, incl. leakage
+│   └── test_setups.py          # tests for the setups module, incl. leakage
 ├── data/               # generated locally: raw/ and processed/ (not committed)
 ├── pyproject.toml      # package definition for the editable install
 ├── requirements.txt    # pinned dependencies
