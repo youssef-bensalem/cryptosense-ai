@@ -10,6 +10,7 @@ import streamlit as st
 from cryptosense.data import load_processed
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
+from cryptosense.setups import SETUPS, explain_setup, setup_flag
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
@@ -80,6 +81,45 @@ with conditions:
     shares = df["trend"].value_counts(normalize=True).rename("share of days")
     st.dataframe(shares.to_frame().style.format("{:.1%}"))
 
-for tab in (setups, volatility, backtest):
+with setups:
+    st.caption(
+        "Setups are research candidates, not buy or sell signals. Rules were pre-registered "
+        "and evaluated on BTC/USDT; historical statistics describe the past and are not a forecast."
+    )
+    if symbol != "BTC/USDT":
+        st.warning(f"Setups were evaluated on BTC/USDT only. Results for {symbol} are untested.")
+
+    for setup in SETUPS:
+        e = explain_setup(df, last_date, setup)
+        status = "FLAGGED" if e["flagged"] else "not flagged"
+        st.subheader(f"{setup.capitalize()} setup: {status} on {e['date']}")
+
+        conditions_table = pd.DataFrame(e["conditions"])
+        conditions_table["met"] = conditions_table["met"].map({True: "yes", False: "no"})
+        st.dataframe(conditions_table, hide_index=True)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Typical 5-day move", f"±{e['typical_move']:.1%}")
+        col2.metric("Past episodes", e["past_episodes"])
+        if e["past_episodes"] > 1:
+            col3.metric(
+                "Past avg 5-day return",
+                f"{e['past_mean_return']:+.2%}",
+                help=f"Standard error ±{e['past_mean_se']:.2%}",
+            )
+            col4.metric("Avg day in same trend regime", f"{e['base_same_trend_mean']:+.2%}")
+            gap = e["past_mean_return"] - e["base_same_trend_mean"]
+            st.caption(
+                f"Difference from an average {e['trend']}-trend day: {gap:+.2%} "
+                f"({gap / e['past_mean_se']:+.1f} standard errors). "
+                "Below about 2 standard errors, the difference could be chance."
+            )
+
+        flags = setup_flag(df, setup)
+        starts = flags & ~flags.shift(fill_value=False)
+        recent = starts[starts].index[-5:]
+        st.write("Most recent episode starts: " + ", ".join(str(d.date()) for d in recent))
+
+for tab in (volatility, backtest):
     with tab:
         st.info("Coming in the next milestones.")
