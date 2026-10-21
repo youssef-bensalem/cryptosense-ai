@@ -11,6 +11,7 @@ from cryptosense.data import load_processed
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
+from cryptosense.volatility import scaled_vol_forecast
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
@@ -120,6 +121,34 @@ with setups:
         recent = starts[starts].index[-5:]
         st.write("Most recent episode starts: " + ", ".join(str(d.date()) for d in recent))
 
-for tab in (volatility, backtest):
-    with tab:
-        st.info("Coming in the next milestones.")
+with volatility:
+    HORIZON = 5
+    forecast = scaled_vol_forecast(df, HORIZON)
+    latest = forecast.iloc[-1]
+
+    st.subheader(f"Volatility forecast for the next {HORIZON} days ({last_date.date()})")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Daily volatility", f"{latest:.2%}")
+    col2.metric(f"Typical {HORIZON}-day move", f"±{latest * np.sqrt(HORIZON):.1%}")
+    col3.metric("Annualised", f"{latest * np.sqrt(365):.0%}")
+    st.caption(
+        "Forecast = 20-day volatility × a scale factor learned only from past, completed outcomes. "
+        "In Phase 4 (BTC), this scaled forecast beat raw 20-day volatility by 8–11% in every "
+        "validation and test year; a Random Forest performed comparably and was not adopted."
+    )
+
+    realized = np.sqrt((df["log_return"] ** 2).rolling(HORIZON).mean()).shift(-HORIZON)
+    comparison = pd.DataFrame({
+        "forecast": forecast,
+        f"realized next {HORIZON} days": realized,
+    }).loc[last_date - pd.Timedelta(days=730):] * np.sqrt(365)
+    vol_fig = px.line(comparison, title="Forecast vs realized volatility, last 2 years (annualised)")
+    vol_fig.update_yaxes(tickformat=".0%")
+    st.plotly_chart(vol_fig, width="stretch")
+    st.caption(
+        f"Realized volatility is only known {HORIZON} days later, so the most recent "
+        "days show the forecast alone."
+    )
+
+with backtest:
+    st.info("Coming in the next milestone.")
