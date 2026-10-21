@@ -12,6 +12,7 @@ from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
 from cryptosense.volatility import scaled_vol_forecast
+from cryptosense.backtest import run_backtest, summarize_backtest
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
@@ -22,6 +23,29 @@ def load_symbol(symbol):
     """Processed data with features and regimes, cached between reruns."""
     return add_regimes(add_features(load_processed(symbol, DATA_DIR)))
 
+COST_PER_SIDE = 0.0015  # 0.10% fee + 0.05% slippage, as assumed in Phase 6
+
+
+@st.cache_data
+def run_strategies(symbol, start):
+    """Backtest the continuation setup (5- and 10-day holds) and buy-and-hold from `start`."""
+    data = load_symbol(symbol).loc[start:].dropna(subset=["dist_sma_100", "rel_volume_20", "er_20"])
+    summaries, curves = {}, {}
+
+    for hold in [5, 10]:
+        trades, equity = run_backtest(data, setup_flag(data, "continuation"), hold, COST_PER_SIDE)
+        summaries[f"continuation {hold}d"] = summarize_backtest(trades, equity)
+        curves[f"continuation {hold}d"] = equity
+
+    hold_all = pd.Series(False, index=data.index)
+    hold_all.iloc[0] = True
+    trades, equity = run_backtest(data, hold_all, len(data) - 2, COST_PER_SIDE)
+    summary = summarize_backtest(trades, equity)
+    summary["win_rate"] = summary["avg_trade"] = None
+    summaries["buy and hold"] = summary
+    curves["buy and hold"] = equity
+
+    return pd.DataFrame(summaries).T, pd.DataFrame(curves)
 
 st.set_page_config(page_title="CryptoSense AI", layout="wide")
 st.title("CryptoSense AI")
@@ -151,4 +175,31 @@ with volatility:
     )
 
 with backtest:
-    st.info("Coming in the next milestone.")
+    st.caption(
+        "Continuation setup, long only: enter at the next day's open after a signal, hold 5 or 10 days, "
+        "one position at a time, all-in, 0.30% round-trip costs. Past performance does not "
+        "guarantee future results."
+    )
+    if symbol != "BTC/USDT":
+        st.warning(f"The strategy was evaluated on BTC/USDT only. Results for {symbol} are untested.")
+
+    period = st.radio("Period", ["Full history", "Held-out test (2024 onward)"], horizontal=True)
+    start = "2024-01-01" if period.startswith("Held-out") else None
+    summary_table, curves = run_strategies(symbol, start)
+
+    percent_columns = ["total_return", "annual_volatility", "max_drawdown",
+                       "time_in_market", "win_rate", "avg_trade"]
+    st.dataframe(
+        summary_table.style.format({c: "{:.1%}" for c in percent_columns} | {"trades": "{:.0f}"},
+                                   na_rep="—")
+    )
+
+    equity_fig = px.line(curves, log_y=True, title="Account value (start = 1.0, log scale)")
+    st.plotly_chart(equity_fig, width="stretch")
+
+    st.caption(
+        "Phase 6 findings (BTC): the continuation strategy stayed profitable after costs on held-out "
+        "data, with far smaller drawdowns and a better return per unit of risk than buy-and-hold, but "
+        "a lower total return. Its advantage over random trades taken during uptrends is suggestive, "
+        "not established; trade counts are small."
+    )
