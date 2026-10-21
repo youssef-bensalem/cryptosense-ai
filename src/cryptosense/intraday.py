@@ -1,4 +1,4 @@
-"""Intraday features for 15-minute candles (Phase 9).
+"""Intraday features for 15-minute candles (Phase 9) and pre-registered setups (Phase 10).
 
 Timing rule: the row for a candle that opens at time t is known at
 t + 15 minutes (its close), and every feature on that row uses only
@@ -6,6 +6,8 @@ candles that open at or before t. Windows and lags are defined by time,
 not by row count: a feature whose required past candle is missing is NaN,
 never computed from a different time.
 """
+
+import operator
 
 import numpy as np
 import pandas as pd
@@ -15,6 +17,15 @@ RETURN_WINDOWS = {"ret_1h": "1h", "ret_4h": "4h", "ret_24h": "24h"}
 RV_WINDOWS = {"rv_4h": "4h", "rv_24h": "24h"}
 REL_VOLUME_DAYS = 20
 NY_TZ = "America/New_York"
+
+# Pre-registered in notebooks/13_intraday_setups.ipynb (Gate 3). Thresholds are the
+# development-period (2017-2023) quantiles printed there: rel_volume_1h q75, rv_4h q50.
+INTRADAY_SETUPS = {
+    "S1": [("prev_day_trend", "==", "up"), ("ret_1h", ">", 0.0), ("rel_volume_1h", ">", 1.277251)],
+    "S2": [("prev_day_trend", "==", "up"), ("ret_4h", "<", 0.0), ("rv_4h", ">", 0.010062)],
+}
+WINDOW_HOURS_NY = (9, 10)
+INTRADAY_OPS = {">": operator.gt, "<": operator.lt, "==": operator.eq}
 
 
 def lag_by_time(series, lag):
@@ -134,5 +145,55 @@ def add_intraday_features(m15, daily):
         labels = daily[label]
         labels = labels.set_axis(labels.index.as_unit(prev_day.unit))
         out[column] = labels.reindex(prev_day).to_numpy()
+
+    return out
+
+
+def intraday_setup_flags(feats):
+    """Flag, for every window hour, whether each pre-registered setup fires.
+
+    A window hour starts at a time T on the hour that is 09:00 or 10:00 in
+    New York (``WINDOW_HOURS_NY``). The decision at T uses only the features
+    of the 15-minute candle that opens at T - 15 minutes and closes exactly
+    at T; no candle that closes after T is used. Window hours are listed by
+    clock time, from the first to the last decision time the data allows,
+    so an hour whose decision candle is missing still appears.
+
+    A setup fires only if its decision row exists, none of the features it
+    uses is NaN, and every condition in ``INTRADAY_SETUPS`` holds. Whether
+    the entry and exit candles exist is not checked here, because the exit
+    candle closes after T; the evaluation handles that.
+
+    Parameters
+    ----------
+    feats : pandas.DataFrame
+        Output of ``add_intraday_features``, indexed by UTC open time.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per window hour, indexed by the decision time T (UTC), with
+        ``hour_ny`` (9 or 10), and for each setup name a bool column (True
+        when the setup fires) and ``<name>_usable`` (True when the decision
+        row exists and none of the setup's features is NaN).
+    """
+    first = (feats.index[0] + CANDLE).ceil("h")
+    last = (feats.index[-1] + CANDLE).floor("h")
+    clock = pd.date_range(first, last, freq="h").as_unit(feats.index.unit)
+    hour_ny = clock.tz_convert(NY_TZ).hour
+    in_window = np.isin(hour_ny, WINDOW_HOURS_NY)
+    decision_time = clock[in_window]
+
+    decision = feats.reindex(decision_time - CANDLE).set_axis(decision_time)
+    out = pd.DataFrame({"hour_ny": hour_ny[in_window]}, index=decision_time)
+    out.index.name = "decision_time"
+
+    for name, rules in INTRADAY_SETUPS.items():
+        usable = decision[[feature for feature, _, _ in rules]].notna().all(axis=1)
+        fires = usable.copy()
+        for feature, op, threshold in rules:
+            fires &= INTRADAY_OPS[op](decision[feature], threshold).fillna(False).astype(bool)
+        out[name] = fires
+        out[f"{name}_usable"] = usable
 
     return out

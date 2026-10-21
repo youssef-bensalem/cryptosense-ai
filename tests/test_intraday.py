@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 
 from cryptosense.data import DAY_MS, candles_to_dataframe
-from cryptosense.intraday import add_intraday_features
+from cryptosense.intraday import INTRADAY_SETUPS, add_intraday_features, intraday_setup_flags
 
 START_MS = 1_704_067_200_000  # 2024-01-01 00:00:00 UTC
 CANDLE_MS = 15 * 60 * 1000
@@ -195,3 +195,114 @@ def test_inputs_are_not_modified():
 
     pd.testing.assert_frame_equal(m15, m15_before)
     pd.testing.assert_frame_equal(daily, daily_before)
+
+
+# --- Pre-registered setups (Phase 10) ---
+
+PASSING = {"prev_day_trend": "up", "prev_day_vol_regime": "high", "ret_1h": 0.01,
+           "ret_4h": -0.01, "rel_volume_1h": 2.0, "rv_4h": 0.02}
+
+
+def make_feats(start, end, **overrides):
+    """Return a feature frame on 15-minute candles where both setups' conditions hold on every row."""
+    index = pd.date_range(start, end, freq="15min", tz="UTC").as_unit("ms")
+    values = {**PASSING, **overrides}
+    return pd.DataFrame({col: [v] * len(index) for col, v in values.items()}, index=index)
+
+
+def utc(ts):
+    return pd.Timestamp(ts, tz="UTC")
+
+
+def test_setup_rules_are_the_pre_registered_ones():
+    assert INTRADAY_SETUPS == {
+        "S1": [("prev_day_trend", "==", "up"), ("ret_1h", ">", 0.0), ("rel_volume_1h", ">", 1.277251)],
+        "S2": [("prev_day_trend", "==", "up"), ("ret_4h", "<", 0.0), ("rv_4h", ">", 0.010062)],
+    }
+
+
+@pytest.mark.parametrize("setup, feature, value, fires", [
+    ("S1", "prev_day_trend", "range", False),
+    ("S1", "prev_day_trend", "down", False),
+    ("S1", "ret_1h", 0.0, False),
+    ("S1", "ret_1h", -0.001, False),
+    ("S1", "rel_volume_1h", 1.277251, False),
+    ("S1", "rel_volume_1h", 1.277252, True),
+    ("S2", "prev_day_trend", "range", False),
+    ("S2", "ret_4h", 0.0, False),
+    ("S2", "ret_4h", 0.001, False),
+    ("S2", "rv_4h", 0.010062, False),
+    ("S2", "rv_4h", 0.010063, True),
+])
+def test_flags_follow_the_pre_registered_conditions(setup, feature, value, fires):
+    # 2024-01-15 is standard time: 09:00 and 10:00 New York are 14:00 and 15:00 UTC.
+    feats = make_feats("2024-01-15 12:00", "2024-01-15 16:00")
+    feats.loc[utc("2024-01-15 13:45"), feature] = value   # decision row for T = 14:00
+    feats.loc[utc("2024-01-15 14:00"), feature] = value   # not a decision row: must not matter
+    flags = intraday_setup_flags(feats)
+
+    other = "S2" if setup == "S1" else "S1"
+    other_uses_feature = any(f == feature for f, _, _ in INTRADAY_SETUPS[other])
+    assert list(flags.index) == [utc("2024-01-15 14:00"), utc("2024-01-15 15:00")]
+    assert flags.loc[utc("2024-01-15 14:00"), setup] == fires
+    assert flags.loc[utc("2024-01-15 14:00"), f"{setup}_usable"]
+    assert flags.loc[utc("2024-01-15 14:00"), other] == (fires or not other_uses_feature)
+    assert flags.loc[utc("2024-01-15 15:00"), [setup, other]].all()
+
+
+def test_only_window_hours_are_listed_across_daylight_saving_time():
+    # Both setups' conditions hold on every row, so any listed hour fires.
+    feats = make_feats("2024-03-08 00:00", "2024-03-12 23:45")
+    flags = intraday_setup_flags(feats)
+
+    ny = flags.index.tz_convert("America/New_York")
+    assert set(ny.hour) == {9, 10} and (ny.minute == 0).all()
+    assert (flags["hour_ny"] == ny.hour).all()
+    assert flags.groupby(ny.date).size().eq(2).all() and len(flags) == 10
+    assert flags[["S1", "S2"]].all().all()
+    # US daylight saving time began 2024-03-10: the window moves from 14-15 to 13-14 UTC.
+    assert list(flags.loc[:utc("2024-03-09 23:00")].index.hour) == [14, 15, 14, 15]
+    assert list(flags.loc[utc("2024-03-10 00:00"):].index.hour) == [13, 14] * 3
+
+
+def test_missing_features_mean_no_trade():
+    feats = make_feats("2024-01-15 12:00", "2024-01-15 16:00")
+    feats.loc[utc("2024-01-15 13:45"), "rel_volume_1h"] = np.nan    # used by S1 only
+    feats = feats.drop(index=utc("2024-01-15 14:45"))              # decision row for T = 15:00
+    flags = intraday_setup_flags(feats)
+
+    t9, t10 = utc("2024-01-15 14:00"), utc("2024-01-15 15:00")
+    assert not flags.loc[t9, "S1"] and not flags.loc[t9, "S1_usable"]
+    assert flags.loc[t9, "S2"] and flags.loc[t9, "S2_usable"]
+    assert t10 in flags.index
+    assert not flags.loc[t10, ["S1", "S2", "S1_usable", "S2_usable"]].any()
+
+
+def make_up_daily(n_days, start_ms=START_MS):
+    index = pd.to_datetime([start_ms + i * DAY_MS for i in range(n_days)], unit="ms", utc=True)
+    return pd.DataFrame({"trend": "up", "vol_regime": "high"}, index=index)
+
+
+@pytest.mark.parametrize("k", [0, 3, 7, 12])
+def test_setup_decision_uses_no_candle_closing_after_t(k):
+    m15 = make_random_m15(n_days=40, seed=1)
+    daily = make_up_daily(41)
+    full = intraday_setup_flags(add_intraday_features(m15, daily))
+    assert full["S1"].sum() > 0 and full["S2"].sum() > 0
+
+    decision_time = full.index[full["S1"] | full["S2"]][k]
+    for last_candle, listed in [(decision_time - pd.Timedelta("15min"), True),
+                                (decision_time - pd.Timedelta("30min"), False)]:
+        cut_m15 = m15.loc[:last_candle]
+        cut_daily = daily[daily.index < last_candle.normalize()]
+        cut = intraday_setup_flags(add_intraday_features(cut_m15, cut_daily))
+
+        assert (decision_time in cut.index) == listed
+        pd.testing.assert_frame_equal(cut, full.loc[:cut.index[-1]])
+
+
+def test_setup_flags_do_not_modify_input():
+    feats = make_feats("2024-01-15 12:00", "2024-01-15 16:00")
+    before = feats.copy(deep=True)
+    intraday_setup_flags(feats)
+    pd.testing.assert_frame_equal(feats, before)
