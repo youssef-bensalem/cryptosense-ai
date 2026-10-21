@@ -41,7 +41,9 @@ This is also a learning project: every component is built step by step, with the
 
 - `src/cryptosense/volatility.py`: point-in-time scaled volatility forecast shared by the dashboard and the setup explanations
 
-**Testing.** 55 automated pytest tests cover the data, feature, regime, setup, volatility and backtest modules, including pagination edge cases tested against a simulated exchange, leakage tests for features, regimes, setup explanations and the volatility forecast, an end-to-end test of the data refresh pipeline, and hand-checkable backtest cases.
+**After the roadmap.** Three extensions followed the seven phases. (1) Multi-asset replication (`notebooks/08_multi_asset.ipynb`): the BTC-designed setups were applied unchanged to ETH and SOL. On ETH, neither setup showed an advantage over random trades taken during uptrends. On SOL, the continuation setup beat an average day of the same year in every year since 2021 and did not depend on a few trades, but its advantage shrank from about +10% to about +2% per 5 days in recent years. (2) Timeframe support in the data layer: `src/cryptosense/data.py` can fetch, validate and store any fixed-length timeframe (such as 15m); the default of 1d is unchanged, and the analysis modules still assume daily data. (3) Entry timing (`notebooks/09_entry_timing.ipynb`): using 15-minute BTC data, delaying entry by 1, 4 or 12 hours after a continuation signal did not improve entry prices on development or held-out data, so the backtester keeps its next-day-open entry.
+
+**Testing.** 77 automated pytest tests cover the data, feature, regime, setup, volatility and backtest modules, including pagination edge cases tested against a simulated exchange, timeframe handling for intraday data, leakage tests for features, regimes, setup explanations and the volatility forecast, an end-to-end test of the data refresh pipeline, and hand-checkable backtest cases.
 
 The roadmap is complete. Possible extensions are listed under "Future enhancements" in [ROADMAP.md](ROADMAP.md).
 

@@ -86,7 +86,9 @@ cryptosense-ai/
 │   ├── 04_regimes.ipynb                  # rule-based regimes and K-means study
 │   ├── 05_volatility_forecast.ipynb      # 5-day volatility forecasting and evaluation
 │   ├── 06_setups.ipynb                   # pre-registered setups and held-out evaluation
-│   └── 07_backtest.ipynb                 # backtests, baselines and held-out evaluation
+│   ├── 07_backtest.ipynb                 # backtests, baselines and held-out evaluation
+│   ├── 08_multi_asset.ipynb              # ETH and SOL replication
+│   └── 09_entry_timing.ipynb             # entry timing with 15-minute data
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
@@ -251,15 +253,15 @@ These are considered only after the core application is stable, and only when th
 - **Parquet storage**, to preserve data types without rebuilding them on load
 - **Incremental updates**, fetching only candles newer than the last saved one instead of the full history
 - **Exact dollar volume**, using the quote-asset volume Binance provides instead of approximating it as volume × close
-- **Additional assets and timeframes**, such as 4-hour candles Requires generalising `validate_ohlcv`, `drop_incomplete_candles` and the file naming in `data.py`, which currently assume daily candles; candle duration can come from `exchange.parse_timeframe()`.
+- **Additional assets and timeframes**, such as 4-hour candles Requires generalising `validate_ohlcv`, `drop_incomplete_candles` and the file naming in `data.py`, which currently assume daily candles; candle duration can come from `exchange.parse_timeframe()`. Data layer done: data.py supports any fixed-length timeframe; the analysis modules still assume daily data.
 - **SQLite**, if structured application storage becomes necessary
 - **Continuous integration**, with GitHub Actions running the pytest suite on every push
 - **Online deployment**, if the application is stable and deployment is worthwhile
 - **FastAPI or a separate frontend**, only if Streamlit becomes a real limitation
 - **ML filter for setups**: revisit once far more episodes are available (for example by pooling setups across BTC, ETH and SOL), evaluated against the rule-based setups with the same pre-registered, held-out protocol.
 - **Borderline marker in explanations**: highlight conditions that only just pass their threshold (for example relative volume 1.55 against a threshold of 1.5).
-- **Multi-asset replication of setups**: apply the unchanged pre-registered rules to ETH/USDT and SOL/USDT as independent evidence.
-- **Multi-asset backtests**: run the unchanged continuation strategy on ETH/USDT and SOL/USDT as independent evidence.
+- **Multi-asset replication of setups**: apply the unchanged pre-registered rules to ETH/USDT and SOL/USDT as independent evidence. Done: see notebooks/08_multi_asset.ipynb.
+- **Multi-asset backtests**: run the unchanged continuation strategy on ETH/USDT and SOL/USDT as independent evidence. Done: see notebooks/08_multi_asset.ipynb.
 - **Trend-holding baseline**: a strategy that holds whenever the trend regime is "up", to test whether the setup adds value beyond trading during uptrends.
 - **Volatility-based position sizing**: size positions using the Phase 4 volatility forecast instead of investing the whole account in each trade.
 - **Walk-forward backtesting**: repeated chronological evaluation instead of a single held-out period.
@@ -270,6 +272,12 @@ LLMs, RAG pipelines, vector databases, deep learning frameworks, and agent frame
 
 ---
 
+
+## Post-roadmap work
+
+- **Multi-asset replication** (`notebooks/08_multi_asset.ipynb`): no edge on ETH; on SOL, a continuation advantage in every year since 2021 that has shrunk over time.
+- **Timeframe-aware data layer**: any fixed-length timeframe can be fetched, validated and stored; daily behavior is unchanged.
+- **Entry timing** (`notebooks/09_entry_timing.ipynb`): delaying entry after a continuation signal did not improve entry prices; next-day-open entry is kept.
 
 ## 6. Running the project
 
