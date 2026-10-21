@@ -133,8 +133,8 @@ Planned additions, each introduced only when there is a reason for it:
 | 5 | Potential setup identification | ✅ Complete |
 | 6 | Historical evaluation and backtesting | ✅ Complete |
 | 7 | Streamlit web application | ✅ Complete |
-| 8 | Intraday exploration (cost versus move, volatility by hour) | ⏭️ Next |
-| 9 | Intraday features | Planned |
+| 8 | Intraday exploration (cost versus move, volatility by hour) | ✅ Complete |
+| 9 | Intraday features | ⏭️ Next |
 | 10 | Intraday setups | Planned |
 | 11 | Intraday backtesting | Planned |
 | 12 | Intraday dashboard section | Planned |
@@ -260,10 +260,10 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 **Decisions:** BTC/USDT only, using the existing 15-minute data; data stays in CSV for now.
 
 **Definition of done**
-- [ ] Typical move versus round-trip cost (0.30%) for 15-minute, 1-hour, 4-hour and 1-day holding periods, overall and by year
-- [ ] Volatility of 15-minute returns by hour of day (UTC), overall and for 2017–2023 versus 2024 onward
-- [ ] Written observations, kept separate from interpretations
-- [ ] A decision on which holding periods are worth researching in Phase 9, with reasons
+- [x] Typical move versus round-trip cost (0.30%) for 15-minute, 1-hour, 4-hour and 1-day holding periods, overall and by year
+- [x] Volatility of 15-minute returns by hour of day (UTC), overall and for 2017–2023 versus 2024 onward
+- [x] Written observations, kept separate from interpretations
+- [x] A decision on which holding periods are worth researching in Phase 9, with reasons
 
 ### Phase 9 — Intraday features
 
