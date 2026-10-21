@@ -133,6 +133,11 @@ Planned additions, each introduced only when there is a reason for it:
 | 5 | Potential setup identification | ✅ Complete |
 | 6 | Historical evaluation and backtesting | ✅ Complete |
 | 7 | Streamlit web application | ✅ Complete |
+| 8 | Intraday exploration (cost versus move, volatility by hour) | ⏭️ Next |
+| 9 | Intraday features | Planned |
+| 10 | Intraday setups | Planned |
+| 11 | Intraday backtesting | Planned |
+| 12 | Intraday dashboard section | Planned |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -243,6 +248,38 @@ The project environment was set up with Python 3.12, an isolated virtual environ
 - [x] Every number and chart comes from actual pipeline output; nothing is hardcoded
 - [x] Limitations and uncertainty are visible next to model outputs and setups
 - [x] The app launches locally with a single documented command
+
+## Intraday research track (Phases 8–12)
+
+Developed on the `intraday` branch; `main` stays as the finished daily project (tag v1.0). The same research rules apply: chronological splits, purging, pre-registered rules, base rates, and a held-out test used once. Daily results do not transfer to intraday data, so every hypothesis is tested from scratch. The daily regimes and volatility forecast may be used as context.
+
+### Phase 8 — Intraday exploration
+
+**Goal:** find out at which holding periods intraday trading could beat costs, and how volatility varies through the day, before designing any setup.
+
+**Decisions:** BTC/USDT only, using the existing 15-minute data; data stays in CSV for now.
+
+**Definition of done**
+- [ ] Typical move versus round-trip cost (0.30%) for 15-minute, 1-hour, 4-hour and 1-day holding periods, overall and by year
+- [ ] Volatility of 15-minute returns by hour of day (UTC), overall and for 2017–2023 versus 2024 onward
+- [ ] Written observations, kept separate from interpretations
+- [ ] A decision on which holding periods are worth researching in Phase 9, with reasons
+
+### Phase 9 — Intraday features
+
+**Goal:** features defined by time windows rather than row counts, time-of-day features, and daily regimes as context, each with tests including leakage tests. Daily features and their behavior stay unchanged.
+
+### Phase 10 — Intraday setups
+
+**Goal:** new pre-registered intraday hypotheses, evaluated against base rates on development data and once on held-out data.
+
+### Phase 11 — Intraday backtesting
+
+**Goal:** a timeframe-aware backtest (metrics annualized by candles per year, not days), with realistic costs and random-entry baselines.
+
+### Phase 12 — Intraday dashboard section
+
+**Goal:** add to the dashboard only what holds up in Phases 10–11, with its uncertainty shown.
 
 ---
 
