@@ -7,13 +7,17 @@ import pytest
 
 from cryptosense.explain import (
     EVIDENCE_LABELS,
+    describe_setup,
     describe_trend,
     describe_volatility,
+    evidence_meaning,
     evidence_strength,
     position_size,
+    stop_level,
     suggested_stop,
     typical_move_range,
 )
+from cryptosense.setups import SETUPS
 
 MISSING = [None, np.nan, float("nan"), pd.NA]
 
@@ -126,3 +130,38 @@ def test_suggested_stop_is_twice_the_typical_move():
     assert suggested_stop(0.04) == pytest.approx(0.08)
     move, _, _ = typical_move_range(100.0, 0.02, horizon=4)
     assert suggested_stop(move) == pytest.approx(2 * move)
+
+
+@pytest.mark.parametrize("name, words", [
+    ("continuation", "a strong, steady rise with unusually heavy trading"),
+    ("pullback", "a short-term dip while the longer-term trend is rising"),
+])
+def test_describe_setup(name, words):
+    assert describe_setup(name) == words
+
+
+def test_describe_setup_covers_every_setup_and_rejects_unknown_names():
+    for name in SETUPS:
+        assert describe_setup(name)
+    with pytest.raises(ValueError):
+        describe_setup("breakout")
+
+
+def test_every_evidence_label_has_a_meaning():
+    meanings = [evidence_meaning(label) for label in EVIDENCE_LABELS]
+    assert all(isinstance(m, str) and m for m in meanings)
+    assert len(set(meanings)) == len(EVIDENCE_LABELS)
+    with pytest.raises(ValueError):
+        evidence_meaning("Proof")
+
+
+def test_stop_level_known_numbers():
+    stop_price, stop_fraction = stop_level(100.0, 0.1)
+    assert stop_price == pytest.approx(100 * math.exp(-0.1))
+    assert stop_fraction == pytest.approx(1 - math.exp(-0.1))
+    # The stop price equals the low end of a typical range of the same size.
+    _, low, _ = typical_move_range(100.0, 0.05, horizon=4)
+    assert stop_level(100.0, 0.1)[0] == pytest.approx(low)
+    # Hitting the stop with the suggested position size loses account x risk.
+    size = position_size(1_000, 0.01, stop_fraction)
+    assert size * stop_fraction == pytest.approx(10.0)

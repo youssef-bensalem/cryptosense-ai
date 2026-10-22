@@ -14,6 +14,10 @@ from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
 from cryptosense.volatility import scaled_vol_forecast
 from cryptosense.backtest import run_backtest, summarize_backtest
+from cryptosense.explain import (
+    describe_setup, describe_trend, describe_volatility, evidence_meaning, evidence_strength,
+    position_size, stop_level, suggested_stop, typical_move_range,
+)
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
@@ -95,9 +99,74 @@ age_days = (pd.Timestamp.now(tz="UTC").normalize() - last_date).days
 st.sidebar.write(f"Last complete candle: **{last_date.date()}**")
 st.sidebar.write(f"Data age: {age_days} day(s)")
 
-overview, conditions, setups, volatility, backtest = st.tabs(
-    ["Market overview", "Market conditions", "Setup research", "Volatility", "Backtesting"]
+summary, overview, conditions, setups, volatility, backtest = st.tabs(
+    ["Summary", "Market overview", "Market conditions", "Setup research", "Volatility", "Backtesting"]
 )
+
+with summary:
+    today = df.iloc[-1]
+    close_today = today["close"]
+    st.subheader(f"{symbol}: {describe_trend(today['trend'])}, {describe_volatility(today['vol_regime'])}")
+    st.caption(f"Based on the last complete day, {last_date.date()}.")
+
+    change_20d = np.exp(today["mom_20"]) - 1
+    direction = "risen" if change_20d >= 0 else "fallen"
+    if pd.isna(today["dist_sma_100"]):
+        position = "there is not enough history yet to compare it with its 100-day average"
+    elif today["dist_sma_100"] >= 0:
+        position = "it is above its 100-day average"
+    else:
+        position = "it is below its 100-day average"
+    st.write(f"Over the past 20 days the price has {direction} {abs(change_20d):.1%}, and {position}.")
+
+    st.markdown("#### How much could the price move this week?")
+    move, low, high = typical_move_range(close_today, scaled_vol_forecast(df, 5).iloc[-1], horizon=5)
+    st.write(
+        f"A typical move over the next 5 days is about ±{move:.1%}: from today's close of "
+        f"{close_today:,.2f}, that is roughly {low:,.2f} to {high:,.2f} USDT."
+    )
+    st.caption("This is a typical move; larger moves do happen.")
+
+    st.markdown("#### Patterns")
+    if symbol in REPLICATION_NOTES:
+        st.warning(REPLICATION_NOTES[symbol])
+    for setup in SETUPS:
+        e = explain_setup(df, last_date, setup)
+        if e["flagged"]:
+            have_stats = e["past_mean_return"] is not None and e["past_mean_se"] is not None
+            gap = e["past_mean_return"] - e["base_same_trend_mean"] if have_stats else float("nan")
+            se = e["past_mean_se"] if have_stats else float("nan")
+            badge = evidence_strength(gap, se, e["past_episodes"])
+            st.write(f"**Pattern found:** {describe_setup(setup)}")
+            st.write(f"Evidence: **{badge}**. {evidence_meaning(badge)}")
+        else:
+            st.write(f"**Not present today:** {describe_setup(setup)}")
+
+    st.markdown("#### Risk helper")
+    col1, col2 = st.columns(2)
+    account = col1.number_input("Account size (USDT)", min_value=1.0, value=1000.0, step=100.0)
+    risk_pct = col2.number_input(
+        "Share of the account you are willing to lose on one trade (%)",
+        min_value=0.1, max_value=100.0, value=1.0, step=0.5,
+    )
+    stop_price, stop_fraction = stop_level(close_today, suggested_stop(move))
+    invest = position_size(account, risk_pct / 100, stop_fraction)
+    col1, col2 = st.columns(2)
+    col1.metric("Suggested stop", f"{stop_price:,.2f} USDT", f"-{stop_fraction:.1%} below today's close",
+                delta_color="off")
+    col2.metric("Position size", f"{invest:,.2f} USDT")
+    st.write(
+        f"Placing the stop at twice the typical 5-day move, investing {invest:,.2f} USDT means that "
+        f"hitting the stop loses about {account * risk_pct / 100:,.2f} USDT ({risk_pct:g}% of the account), "
+        "before costs."
+    )
+    if invest > account:
+        st.warning("This is more than the account size; it would require borrowing, which this tool does not assume.")
+    st.caption("Prices can jump past a stop in fast markets.")
+
+    st.divider()
+    st.write("This summary describes market conditions and past evidence. It is not advice to buy or sell.")
+    st.caption("The other tabs show the full technical details behind these numbers.")
 
 with overview:
     close = df["close"]

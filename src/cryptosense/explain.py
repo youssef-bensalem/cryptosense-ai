@@ -18,6 +18,10 @@ VOLATILITY_WORDS = {
     "high": "more turbulent than usual (compared with the past year)",
     "low": "calmer than usual (compared with the past year)",
 }
+SETUP_WORDS = {
+    "continuation": "a strong, steady rise with unusually heavy trading",
+    "pullback": "a short-term dip while the longer-term trend is rising",
+}
 MIN_EPISODES = 30
 EVIDENCE_LABELS = (
     "Too little data",
@@ -27,6 +31,29 @@ EVIDENCE_LABELS = (
     "Some evidence",
     "Stronger evidence",
 )
+EVIDENCE_MEANINGS = {
+    "Too little data": "This pattern has appeared fewer than 30 times before, too few to judge.",
+    "Did worse than average": (
+        "In the 5 days after this pattern, prices did worse than on an average day "
+        "in the same trend, by more than chance usually explains."
+    ),
+    "No evidence": (
+        "In the 5 days after this pattern, prices did about as well as on an average day "
+        "in the same trend; any difference could easily be chance."
+    ),
+    "Weak evidence": (
+        "In the 5 days after this pattern, prices did somewhat better than on an average day "
+        "in the same trend, but a difference this size often happens by chance."
+    ),
+    "Some evidence": (
+        "In the 5 days after this pattern, prices did clearly better than on an average day "
+        "in the same trend, though chance cannot be ruled out."
+    ),
+    "Stronger evidence": (
+        "In the 5 days after this pattern, prices did much better than on an average day "
+        "in the same trend; the past still does not guarantee the future."
+    ),
+}
 
 
 def _describe(label, words):
@@ -230,3 +257,80 @@ def suggested_stop(typical_move):
         Stop distance, in the same units as ``typical_move``.
     """
     return 2 * typical_move
+
+
+def describe_setup(name):
+    """Describe a setup from ``SETUPS`` in plain words.
+
+    "continuation" is a strong, steady rise with unusually heavy trading;
+    "pullback" is a short-term dip while the longer-term trend is rising.
+
+    Parameters
+    ----------
+    name : str
+        A key of ``cryptosense.setups.SETUPS``.
+
+    Returns
+    -------
+    str
+        The plain-language description.
+
+    Raises
+    ------
+    ValueError
+        If ``name`` is not a known setup.
+    """
+    if name not in SETUP_WORDS:
+        raise ValueError(f"Unknown setup {name!r}: expected one of {sorted(SETUP_WORDS)}.")
+    return SETUP_WORDS[name]
+
+
+def evidence_meaning(label):
+    """One plain sentence explaining an ``evidence_strength`` label.
+
+    Each sentence says how prices did in the 5 days after past
+    occurrences of the pattern, compared with an average day in the same
+    trend, and how far chance could explain the difference.
+
+    Parameters
+    ----------
+    label : str
+        One of ``EVIDENCE_LABELS``.
+
+    Returns
+    -------
+    str
+        The explanation.
+
+    Raises
+    ------
+    ValueError
+        If ``label`` is not one of ``EVIDENCE_LABELS``.
+    """
+    if label not in EVIDENCE_MEANINGS:
+        raise ValueError(f"Unknown evidence label {label!r}: expected one of {list(EVIDENCE_LABELS)}.")
+    return EVIDENCE_MEANINGS[label]
+
+
+def stop_level(price, stop_move):
+    """Stop price and stop distance for a stop placed ``stop_move`` below the price.
+
+    Moves in this module are log returns, like the typical move, so a
+    stop ``stop_move`` below the price sits at price x exp(-stop_move).
+    As a share of the price, the distance to it is 1 - exp(-stop_move);
+    that share is what ``position_size`` needs as ``stop_fraction``.
+
+    Parameters
+    ----------
+    price : float
+        Current price.
+    stop_move : float
+        Stop distance as a log return, e.g. from ``suggested_stop``.
+
+    Returns
+    -------
+    tuple of float
+        ``(stop_price, stop_fraction)``.
+    """
+    stop_price = price * math.exp(-stop_move)
+    return stop_price, 1 - stop_price / price
