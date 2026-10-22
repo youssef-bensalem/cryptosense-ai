@@ -138,6 +138,7 @@ Planned additions, each introduced only when there is a reason for it:
 | 10 | Intraday setups | ✅ Complete |
 | 11 | Intraday backtesting | ⏸️ Paused |
 | 12 | Intraday dashboard section | ⏸️ Paused |
+| 13 | One-day holding period track | ⏭️ Next |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -282,6 +283,10 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 **Goal:** add to the dashboard only what holds up in Phases 10–11, with its uncertainty shown.
 
 **Status (paused):** Phase 9 chose the 09:00–10:59 New York window, where 1-hour moves are largest relative to costs. Phase 10 evaluated two pre-registered setups (S1, a volume-confirmed push into the open; S2, an uptrend dip into the open) on development data: neither differed from base rates or hour-matched random entries, and the average window hour returned about −0.31% after costs, so gross 1-hour moves averaged roughly zero. The held-out period (2024 onward) was not used and remains unseen for future intraday hypotheses. Phases 11–12 are paused; the 15-minute data, features module and tests remain available.
+
+## One-day holding period track (Phase 13)
+
+**Goal:** test whether new, pre-registered daily setups held for one day (buy at the next open, sell at the following open) beat base rates after 0.30% round-trip costs. In 2023–2026 that cost was 11–14% of a typical one-day move. BTC first; ETH and SOL as unchanged replication. Development to 2023-12-31; held-out test from 2024-01-01, run once. Limitation: 2024 onward daily data was already examined in Phases 4–6, so the held-out test is not fully untouched; replication on ETH and SOL is the main independent check. Gates: exploration (volatility only), pre-registration approved before any outcome, development evaluation, then one held-out run.
 
 ---
 
