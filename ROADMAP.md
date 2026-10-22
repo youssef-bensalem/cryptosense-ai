@@ -295,6 +295,8 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 
 **Goal:** improve the 5-day volatility forecast used by the dashboard (price range, stops, position size) with realized volatility from 15-minute data and a HAR model, for BTC and SOL. Competitors: raw vol_20, scaled vol_20 (current forecast, the one to beat), scaled 20-day realized volatility, HAR (log realized volatility over 1, 5 and 22 days). Periods: BTC train to 2021, validation 2022–2023, test 2024 onward; SOL train to 2022, validation 2023, test 2024 onward; 5-day purge; test run once. MAE (primary) and RMSE, as improvement over scaled vol_20, by year. Adoption rule: the new forecast replaces the current one only if it beats scaled vol_20 on validation for both assets and the test does not contradict it. Limitation: BTC's 2024+ period was already used in Phase 4; SOL's was not, so SOL is the cleaner test.
 
+**Result:** HAR adopted for BTC and SOL (test MAE improvement on realized volatility: BTC +21.2%, SOL +11.3%); not better for close-based volatility. Integration into the dashboard is next.
+
 ---
 
 ## 5. Future enhancements (optional)
