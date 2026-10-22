@@ -48,6 +48,31 @@ def find_trades(signal, hold_days):
     return trades
 
 
+def find_one_day_trades(signal):
+    """Turn a daily signal into one-day trades, one per signal day.
+
+    A signal at position ``t`` enters at ``t + 1`` and exits at ``t + 2``.
+    Unlike ``find_trades``, signals on consecutive days are all kept: a
+    trade exits at the open where the next one enters, so one-day trades
+    never overlap. Each trade is a separate round trip and pays costs on
+    both entry and exit. Signals whose exit would fall beyond the data
+    are skipped.
+
+    Parameters
+    ----------
+    signal : pandas.Series of bool
+        True on days the setup is flagged at the close.
+
+    Returns
+    -------
+    list of tuple of int
+        ``(entry_position, exit_position)`` pairs, as row positions.
+    """
+    flags = signal.to_numpy()
+    n = len(flags)
+    return [(t + 1, t + 2) for t in range(n) if flags[t] and t + 2 < n]
+
+
 def run_backtest(df, signal, hold_days, cost_per_side=0.0015):
     """Simulate trading a signal with open-price execution and costs.
 

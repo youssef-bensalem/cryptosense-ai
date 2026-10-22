@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from cryptosense.backtest import find_trades, run_backtest, summarize_backtest
+from cryptosense.backtest import find_one_day_trades, find_trades, run_backtest, summarize_backtest
 
 
 def make_prices(opens):
@@ -82,3 +82,30 @@ def test_summary_known_values():
     assert summary["max_drawdown"] == pytest.approx(-0.5)   # 100 -> 50 while holding
     assert summary["win_rate"] == 1.0
     assert summary["time_in_market"] == pytest.approx(3 / 7)
+
+
+def test_one_day_trades_one_per_signal_day_with_correct_positions():
+    assert find_one_day_trades(make_signal(10, [2, 5])) == [(3, 4), (6, 7)]
+
+
+def test_one_day_trades_keep_back_to_back_signals():
+    # find_trades would ignore the signal on day 3; one-day trades keep both.
+    signal = make_signal(10, [2, 3, 4])
+    assert find_one_day_trades(signal) == [(3, 4), (4, 5), (5, 6)]
+    assert find_trades(signal, hold_days=1) == [(3, 4), (5, 6)]
+
+
+def test_one_day_trades_need_the_exit_day_in_the_data():
+    # n = 6: a signal on day 3 exits on day 5 (the last row); signals on days 4 and 5 cannot exit.
+    assert find_one_day_trades(make_signal(6, [3, 4, 5])) == [(4, 5)]
+    assert find_one_day_trades(make_signal(6, [])) == []
+
+
+def test_one_day_trades_match_flagged_positions_on_a_dated_series():
+    rng = np.random.default_rng(0)
+    signal = pd.Series(rng.random(200) < 0.3,
+                       index=pd.date_range("2024-01-01", periods=200, freq="D", tz="UTC"))
+    trades = find_one_day_trades(signal)
+    flagged = np.flatnonzero(signal.to_numpy())
+    assert [entry - 1 for entry, _ in trades] == [t for t in flagged if t + 2 < len(signal)]
+    assert all(exit_ == entry + 1 for entry, exit_ in trades)
