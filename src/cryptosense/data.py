@@ -48,8 +48,9 @@ def timeframe_to_ms(timeframe):
 def fetch_ohlcv_history(exchange,
                          symbol, 
                          timeframe="1d", 
-                         start="2017-01-01T00:00:00Z", 
-                         limit=1000):
+                         start="2017-01-01T00:00:00Z",
+                         limit=1000,
+                         since_ms=None):
     
     """Fetch the full candle history for a symbol, paginating as needed.
 
@@ -67,6 +68,9 @@ def fetch_ohlcv_history(exchange,
     limit : int, default 1000
         Candles per request. Must not exceed the exchange's maximum
         (1000 for Binance), or pagination stops after the first request.
+    since_ms : int, optional
+        Timestamp in milliseconds (UTC) to start from instead of ``start``.
+        ``None`` (default) uses ``start``.
 
     Returns
     -------
@@ -76,7 +80,7 @@ def fetch_ohlcv_history(exchange,
     """
         
     all_candles = []
-    since=exchange.parse8601(start)
+    since=exchange.parse8601(start) if since_ms is None else since_ms
     while True:
         batch = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
         if len(batch) == 0:
@@ -352,6 +356,11 @@ def refresh_symbol(exchange, symbol, data_dir, now_ms, timeframe="1d"):
         ``problems`` found by validation (an empty dict means clean data).
     """
     candles = fetch_ohlcv_history(exchange, symbol, timeframe=timeframe)
+    return _process_and_save(candles, symbol, data_dir, now_ms, timeframe)
+
+
+def _process_and_save(candles, symbol, data_dir, now_ms, timeframe):
+    """Validate, drop incomplete candles, save, and summarise, as in ``refresh_symbol``."""
     df = candles_to_dataframe(candles)
     report = validate_ohlcv(df, timeframe)
     df = drop_incomplete_candles(df, now_ms, timeframe)
@@ -363,3 +372,61 @@ def refresh_symbol(exchange, symbol, data_dir, now_ms, timeframe="1d"):
         if (check == "sorted" and result is not True) or (check != "sorted" and result != 0)
     }
     return {"symbol": symbol, "rows": len(df), "last_date": df.index[-1].date(), "problems": problems}
+
+
+RAW_COLUMNS = ["timestamp", "open", "high", "low", "close", "volume"]
+
+
+def update_symbol(exchange, symbol, data_dir, now_ms, timeframe="1d"):
+    """Update one symbol's saved data by fetching only the candles not yet processed.
+
+    Without a saved raw file this is exactly ``refresh_symbol``. Otherwise the
+    saved raw candles are loaded and the first one missing from the saved
+    processed file (normally the candle that was incomplete on the last run)
+    sets the starting timestamp; if every raw candle is processed, fetching
+    starts just after the last one. Candles from that timestamp on are fetched
+    again, combined with the saved raw candles before it (a fetched candle
+    replaces a saved one with the same timestamp), sorted, and run through the
+    same pipeline as ``refresh_symbol``: validation of the whole combined
+    history, dropping incomplete candles, and ``save_dataset``.
+
+    Parameters
+    ----------
+    exchange : ccxt.Exchange
+        Exchange object created by the caller.
+    symbol : str
+        Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
+    data_dir : pathlib.Path
+        Root data folder, the same one used by ``refresh_symbol``.
+    now_ms : int
+        Current time in milliseconds (UTC), used to drop incomplete candles.
+    timeframe : str, default "1d"
+        Candle size to update, e.g. ``"1d"`` or ``"15m"``.
+
+    Returns
+    -------
+    dict
+        The ``refresh_symbol`` summary plus ``new_candles``, the number of
+        candles fetched.
+    """
+    slug = symbol_to_slug(symbol)
+    raw_path = data_dir / "raw" / f"{slug}_{timeframe}_raw.csv"
+    if not raw_path.exists():
+        candles = fetch_ohlcv_history(exchange, symbol, timeframe=timeframe)
+        return {**_process_and_save(candles, symbol, data_dir, now_ms, timeframe), "new_candles": len(candles)}
+
+    # round_trip parsing reads back exactly the floats that were written.
+    raw = pd.read_csv(raw_path, float_precision="round_trip")
+    saved = [list(row) for row in zip(*(raw[c].tolist() for c in RAW_COLUMNS))]
+
+    processed_path = data_dir / "processed" / f"{slug}_{timeframe}.csv"
+    processed = set(pd.read_csv(processed_path)["timestamp"]) if processed_path.exists() else set()
+    unprocessed = [c[0] for c in saved if c[0] not in processed]
+    since_ms = unprocessed[0] if unprocessed else saved[-1][0] + 1
+
+    fetched = fetch_ohlcv_history(exchange, symbol, timeframe=timeframe, since_ms=since_ms)
+    by_timestamp = {c[0]: c for c in saved if c[0] < since_ms}
+    by_timestamp.update({c[0]: c for c in fetched})
+    candles = [by_timestamp[t] for t in sorted(by_timestamp)]
+
+    return {**_process_and_save(candles, symbol, data_dir, now_ms, timeframe), "new_candles": len(fetched)}

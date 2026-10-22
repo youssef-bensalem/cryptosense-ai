@@ -13,6 +13,7 @@ from cryptosense.data import (
     load_processed,
     refresh_symbol,
     timeframe_to_ms,
+    update_symbol,
 )
 
 START_MS = 1_704_067_200_000
@@ -284,3 +285,123 @@ def test_refresh_symbol_15m_runs_the_full_pipeline(tmp_path):
     assert len(load_processed("BTC/USDT", tmp_path, timeframe="15m")) == 9
     assert (tmp_path / "raw" / "btc_usdt_15m_raw.csv").exists()
     assert not (tmp_path / "processed" / "btc_usdt_1d.csv").exists()
+
+
+# Incremental updates
+
+def test_fetch_since_ms_overrides_start():
+    candles = make_candles(30)
+    exchange = FakeExchange(candles)
+
+    result = fetch_ohlcv_history(exchange, "BTC/USDT", since_ms=START_MS + 5 * DAY_MS)
+
+    assert result == candles[5:]
+    assert exchange.requests == [START_MS + 5 * DAY_MS]
+
+
+def make_varied_candles(n, step_ms, seed=0):
+    """n consecutive candles with random, non-round prices and volumes (to test exact CSV round trips)."""
+    rng = np.random.default_rng(seed)
+    close = 100 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+    open_ = np.concatenate([[100.0], close[:-1]])
+    high = np.maximum(open_, close) * (1 + rng.uniform(0, 0.01, n))
+    low = np.minimum(open_, close) * (1 - rng.uniform(0, 0.01, n))
+    volume = rng.uniform(10, 1000, n)
+    return [[START_MS + i * step_ms, float(o), float(h), float(lo), float(c), float(v)]
+            for i, (o, h, lo, c, v) in enumerate(zip(open_, high, low, close, volume))]
+
+
+def forming(candle):
+    """The still-forming version of a candle: same open, partial range, close and volume."""
+    t, o, h, lo, c, v = candle
+    return [t, o, max(o, (o + c) / 2), min(o, (o + c) / 2), (o + c) / 2, v / 3]
+
+
+def first_run(tmp_path, candles, n_seen, step_ms, timeframe):
+    """Save a first refresh that saw n_seen candles, the last one still forming."""
+    served = candles[:n_seen - 1] + [forming(candles[n_seen - 1])]
+    now_ms = candles[n_seen - 1][0] + 1
+    refresh_symbol(FakeExchange(served), "BTC/USDT", tmp_path, now_ms, timeframe)
+
+
+def read_files(data_dir, timeframe):
+    return [(data_dir / sub / f"btc_usdt_{timeframe}{suffix}.csv").read_bytes()
+            for sub, suffix in [("raw", "_raw"), ("processed", "")]]
+
+
+TIMEFRAMES = [("1d", DAY_MS), ("15m", FIFTEEN_MIN_MS)]
+
+
+@pytest.mark.parametrize("timeframe, step_ms", TIMEFRAMES)
+def test_update_equals_full_refresh(tmp_path, timeframe, step_ms):
+    candles = make_varied_candles(60, step_ms)
+    first_run(tmp_path / "update", candles, 40, step_ms, timeframe)
+    now_ms = candles[-1][0] + 1                      # candle 60 is still forming
+    served = candles[:-1] + [forming(candles[-1])]
+
+    updated = update_symbol(FakeExchange(served), "BTC/USDT", tmp_path / "update", now_ms, timeframe)
+    refreshed = refresh_symbol(FakeExchange(served), "BTC/USDT", tmp_path / "full", now_ms, timeframe)
+
+    assert updated == {**refreshed, "new_candles": 21}   # candles 40-60
+    assert read_files(tmp_path / "update", timeframe) == read_files(tmp_path / "full", timeframe)
+    pd.testing.assert_frame_equal(load_processed("BTC/USDT", tmp_path / "update", timeframe),
+                                  candles_to_dataframe(candles[:-1]))
+
+
+@pytest.mark.parametrize("timeframe, step_ms", TIMEFRAMES)
+def test_update_replaces_incomplete_candle_without_duplicates(tmp_path, timeframe, step_ms):
+    candles = make_varied_candles(60, step_ms)
+    first_run(tmp_path, candles, 40, step_ms, timeframe)
+    boundary = candles[39][0]
+    assert boundary not in set(load_processed("BTC/USDT", tmp_path, timeframe)["timestamp"])
+
+    exchange = FakeExchange(candles)
+    update_symbol(exchange, "BTC/USDT", tmp_path, candles[-1][0] + step_ms, timeframe)
+
+    assert exchange.requests[0] == boundary
+    loaded = load_processed("BTC/USDT", tmp_path, timeframe)
+    assert loaded.loc[loaded["timestamp"] == boundary, ["open", "high", "low", "close", "volume"]].values.tolist()         == [candles[39][1:]]
+    raw = pd.read_csv(tmp_path / "raw" / f"btc_usdt_{timeframe}_raw.csv")
+    for timestamps in [loaded["timestamp"], raw["timestamp"]]:
+        assert timestamps.is_unique and timestamps.is_monotonic_increasing
+        assert list(timestamps) == [c[0] for c in candles]
+
+
+@pytest.mark.parametrize("timeframe, step_ms", TIMEFRAMES)
+def test_update_makes_fewer_requests_than_refresh(tmp_path, timeframe, step_ms):
+    candles = make_candles(2500) if timeframe == "1d" else make_15m_candles(2500)
+    first_run(tmp_path, candles, 2495, step_ms, timeframe)
+    now_ms = candles[-1][0] + step_ms
+
+    update_exchange, refresh_exchange = FakeExchange(candles), FakeExchange(candles)
+    result = update_symbol(update_exchange, "BTC/USDT", tmp_path, now_ms, timeframe)
+    refresh_symbol(refresh_exchange, "BTC/USDT", tmp_path / "full", now_ms, timeframe)
+
+    assert result["new_candles"] == 6
+    assert len(update_exchange.requests) == 1
+    assert len(refresh_exchange.requests) == 3
+
+
+@pytest.mark.parametrize("timeframe, step_ms", TIMEFRAMES)
+def test_update_without_saved_files_equals_refresh(tmp_path, timeframe, step_ms):
+    candles = make_varied_candles(30, step_ms)
+    now_ms = candles[-1][0] + 1
+
+    updated = update_symbol(FakeExchange(candles), "BTC/USDT", tmp_path / "update", now_ms, timeframe)
+    refreshed = refresh_symbol(FakeExchange(candles), "BTC/USDT", tmp_path / "full", now_ms, timeframe)
+
+    assert updated == {**refreshed, "new_candles": 30}
+    assert read_files(tmp_path / "update", timeframe) == read_files(tmp_path / "full", timeframe)
+
+
+def test_update_when_all_saved_candles_are_complete(tmp_path):
+    candles = make_varied_candles(30, DAY_MS)
+    refresh_symbol(FakeExchange(candles[:20]), "BTC/USDT", tmp_path, candles[20][0], "1d")  # all 20 complete
+
+    exchange = FakeExchange(candles)
+    result = update_symbol(exchange, "BTC/USDT", tmp_path, candles[-1][0] + DAY_MS, "1d")
+
+    assert exchange.requests[0] == candles[19][0] + 1
+    assert result["new_candles"] == 10
+    pd.testing.assert_frame_equal(load_processed("BTC/USDT", tmp_path), candles_to_dataframe(candles))
+
