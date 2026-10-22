@@ -8,11 +8,13 @@ import ccxt
 import plotly.express as px
 import streamlit as st
 
-from cryptosense.data import load_processed, refresh_symbol, symbol_to_slug
+from cryptosense.data import load_processed, symbol_to_slug, update_symbol
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
-from cryptosense.volatility import scaled_vol_forecast
+from cryptosense.volatility import (
+    HAR_LABEL, HAR_SYMBOLS, daily_realized_vol, dashboard_forecast, realized_vol_ahead,
+)
 from cryptosense.backtest import run_backtest, summarize_backtest
 from cryptosense.explain import (
     describe_setup, describe_trend, describe_volatility, evidence_meaning, evidence_strength,
@@ -38,6 +40,29 @@ REPLICATION_NOTES = {
 def load_symbol(symbol):
     """Processed data with features and regimes, cached between reruns."""
     return add_regimes(add_features(load_processed(symbol, DATA_DIR)))
+
+
+@st.cache_data
+def load_m15(symbol):
+    """15-minute candles, or None if they have not been downloaded yet; cached between reruns."""
+    if not (DATA_DIR / "processed" / f"{symbol_to_slug(symbol)}_15m.csv").exists():
+        return None
+    return load_processed(symbol, DATA_DIR, timeframe="15m")
+
+
+@st.cache_data
+def load_forecast(symbol):
+    """Dashboard 5-day volatility forecast and its method label, cached between reruns."""
+    return dashboard_forecast(symbol, load_symbol(symbol), load_m15(symbol), horizon=5)
+
+
+@st.cache_data
+def load_realized_ahead(symbol):
+    """Realized volatility over the next 5 days from 15-minute data, on the daily index (None without 15-minute data)."""
+    m15 = load_m15(symbol)
+    if m15 is None:
+        return None
+    return realized_vol_ahead(daily_realized_vol(m15), horizon=5).reindex(load_symbol(symbol).index)
 
 COST_PER_SIDE = 0.0015  # 0.10% fee + 0.05% slippage, as assumed in Phase 6
 
@@ -74,7 +99,12 @@ if st.sidebar.button("Refresh data from Binance"):
         with st.sidebar.status("Fetching and validating data..."):
             exchange = ccxt.binance()
             now_ms = exchange.milliseconds()
-            results = [refresh_symbol(exchange, s, DATA_DIR, now_ms) for s in WATCHLIST]
+            results = [{**update_symbol(exchange, s, DATA_DIR, now_ms), "unit": "days"} for s in WATCHLIST]
+            for s in HAR_SYMBOLS:
+                if not (DATA_DIR / "raw" / f"{symbol_to_slug(s)}_15m_raw.csv").exists():
+                    st.write(f"Downloading 15-minute data for {s} for the first time; this takes a few minutes.")
+                results.append({**update_symbol(exchange, s, DATA_DIR, now_ms, timeframe="15m"),
+                                "unit": "15-minute candles"})
     except Exception as error:
         st.sidebar.error(f"Refresh failed: {error}. Any symbols updated before the error were kept.")
     else:
@@ -85,7 +115,7 @@ if st.sidebar.button("Refresh data from Binance"):
 if "refresh_results" in st.session_state:
     for r in st.session_state["refresh_results"]:
         problems = "clean" if not r["problems"] else f"problems: {r['problems']}"
-        st.sidebar.caption(f"{r['symbol']}: {r['rows']} days to {r['last_date']} ({problems})")
+        st.sidebar.caption(f"{r['symbol']}: {r['rows']} {r['unit']} to {r['last_date']} ({problems})")
 
 processed_file = DATA_DIR / "processed" / f"{symbol_to_slug(symbol)}_1d.csv"
 if not processed_file.exists():
@@ -93,6 +123,10 @@ if not processed_file.exists():
     st.stop()
 
 df = load_symbol(symbol)
+forecast, forecast_method = load_forecast(symbol)
+is_har = forecast_method == HAR_LABEL
+swing = "swing" if is_har else "move"
+swing_long = "typical swing (including moves within the day)" if is_har else "typical move"
 
 last_date = df.index[-1]
 age_days = (pd.Timestamp.now(tz="UTC").normalize() - last_date).days
@@ -120,12 +154,12 @@ with summary:
     st.write(f"Over the past 20 days the price has {direction} {abs(change_20d):.1%}, and {position}.")
 
     st.markdown("#### How much could the price move this week?")
-    move, low, high = typical_move_range(close_today, scaled_vol_forecast(df, 5).iloc[-1], horizon=5)
+    move, low, high = typical_move_range(close_today, forecast.iloc[-1], horizon=5)
     st.write(
-        f"A typical move over the next 5 days is about ±{move:.1%}: from today's close of "
+        f"A {swing_long} over the next 5 days is about ±{move:.1%}: from today's close of "
         f"{close_today:,.2f}, that is roughly {low:,.2f} to {high:,.2f} USDT."
     )
-    st.caption("This is a typical move; larger moves do happen.")
+    st.caption(f"This is a typical {swing}; larger moves do happen.")
 
     st.markdown("#### Patterns")
     if symbol in REPLICATION_NOTES:
@@ -156,7 +190,7 @@ with summary:
                 delta_color="off")
     col2.metric("Position size", f"{invest:,.2f} USDT")
     st.write(
-        f"Placing the stop at twice the typical 5-day move, investing {invest:,.2f} USDT means that "
+        f"Placing the stop at twice the typical 5-day {swing}, investing {invest:,.2f} USDT means that "
         f"hitting the stop loses about {account * risk_pct / 100:,.2f} USDT ({risk_pct:g}% of the account), "
         "before costs."
     )
@@ -229,7 +263,8 @@ with setups:
         st.dataframe(conditions_table, hide_index=True)
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Typical 5-day move", f"±{e['typical_move']:.1%}")
+        col1.metric(f"Typical 5-day {swing}", f"±{forecast.iloc[-1] * np.sqrt(5):.1%}",
+                    help=f"{swing_long.capitalize()}. Method: {forecast_method}.")
         col2.metric("Past episodes", e["past_episodes"])
         if e["past_episodes"] > 1:
             col3.metric(
@@ -252,24 +287,41 @@ with setups:
 
 with volatility:
     HORIZON = 5
-    forecast = scaled_vol_forecast(df, HORIZON)
     latest = forecast.iloc[-1]
 
     st.subheader(f"Volatility forecast for the next {HORIZON} days ({last_date.date()})")
+    st.write(f"Method: **{forecast_method}**")
     col1, col2, col3 = st.columns(3)
     col1.metric("Daily volatility", f"{latest:.2%}")
-    col2.metric(f"Typical {HORIZON}-day move", f"±{latest * np.sqrt(HORIZON):.1%}")
+    col2.metric(f"Typical {HORIZON}-day {swing}", f"±{latest * np.sqrt(HORIZON):.1%}",
+                help=swing_long.capitalize() + ".")
     col3.metric("Annualised", f"{latest * np.sqrt(365):.0%}")
-    st.caption(
-        "Forecast = 20-day volatility × a scale factor learned only from past, completed outcomes. "
-        "In Phase 4 (BTC), this scaled forecast beat raw 20-day volatility by 8–11% in every "
-        "validation and test year; a Random Forest performed comparably and was not adopted."
-    )
+    if is_har:
+        st.caption(
+            "HAR forecast from 15-minute realized volatility. On 2024+ held-out data it improved forecast "
+            "error on realized volatility by 21% (BTC) and 11% (SOL) versus the previous forecast; it was "
+            "not better at forecasting where the price closes."
+        )
+    else:
+        note = ("No intraday data for this asset; using the 20-day volatility forecast."
+                if symbol not in HAR_SYMBOLS else
+                "15-minute data is missing or out of date; using the 20-day volatility forecast. "
+                "Click **Refresh data from Binance** to update it.")
+        st.caption(
+            "Forecast = 20-day volatility × a scale factor learned only from past, completed outcomes. "
+            "In Phase 4 (BTC), this scaled forecast beat raw 20-day volatility by 8–11% in every "
+            "validation and test year; a Random Forest performed comparably and was not adopted. " + note
+        )
 
-    realized = np.sqrt((df["log_return"] ** 2).rolling(HORIZON).mean()).shift(-HORIZON)
+    realized_rv = load_realized_ahead(symbol) if symbol in HAR_SYMBOLS else None
+    if realized_rv is not None:
+        realized, realized_name = realized_rv, f"realized next {HORIZON} days (15-minute data)"
+    else:
+        realized = np.sqrt((df["log_return"] ** 2).rolling(HORIZON).mean()).shift(-HORIZON)
+        realized_name = f"realized next {HORIZON} days"
     comparison = pd.DataFrame({
         "forecast": forecast,
-        f"realized next {HORIZON} days": realized,
+        realized_name: realized,
     }).loc[last_date - pd.Timedelta(days=730):] * np.sqrt(365)
     vol_fig = px.line(comparison, title="Forecast vs realized volatility, last 2 years (annualised)")
     vol_fig.update_yaxes(tickformat=".0%")

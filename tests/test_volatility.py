@@ -6,7 +6,10 @@ from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import explain_setup
 from cryptosense.data import candles_to_dataframe
-from cryptosense.volatility import daily_realized_vol, fit_har_latest, har_forecast, scaled_vol_forecast
+from cryptosense.volatility import (
+    HAR_LABEL, SCALED_LABEL, daily_realized_vol, dashboard_forecast, fit_har_latest, har_forecast,
+    realized_vol_ahead, scaled_vol_forecast,
+)
 from test_features import make_random_df
 
 
@@ -206,3 +209,94 @@ def test_har_does_not_modify_input():
     har_forecast(rv, refit_every=30, min_train=100)
     fit_har_latest(rv)
     pd.testing.assert_series_equal(rv, snapshot)
+
+
+def test_realized_vol_ahead_known_values():
+    rv = make_har_rv(40)
+    ahead = realized_vol_ahead(rv, horizon=5)
+    for i in [0, 17, 34]:
+        assert ahead.iloc[i] == pytest.approx(np.sqrt((rv.iloc[i + 1:i + 6] ** 2).mean()))
+    assert ahead.iloc[35:].isna().all()              # next 5 days not all known
+    gappy = rv.copy()
+    gappy.iloc[20] = np.nan
+    assert realized_vol_ahead(gappy).iloc[15:20].isna().all()
+
+
+N_DAYS = 420  # HAR needs 21 + 365 + 5 days before its first forecast
+
+
+@pytest.fixture(scope="module")
+def dashboard_data():
+    """Daily candles and matching 15-minute candles over the same N_DAYS days from 2024-01-01."""
+    daily = add_features(make_random_df(N_DAYS))
+    m15, _ = make_m15_days(N_DAYS, rng=np.random.default_rng(1))
+    return daily, m15
+
+
+@pytest.mark.parametrize("symbol", ["BTC/USDT", "SOL/USDT"])
+def test_dashboard_forecast_uses_har_for_btc_and_sol(dashboard_data, symbol):
+    daily, m15 = dashboard_data
+    forecast, label = dashboard_forecast(symbol, daily, m15)
+
+    expected = har_forecast(daily_realized_vol(m15)).reindex(daily.index)
+    assert label == HAR_LABEL
+    np.testing.assert_allclose(forecast.to_numpy(), expected.to_numpy())
+    assert forecast.iloc[-1] > 0
+
+
+def test_dashboard_forecast_uses_scaled_for_eth(dashboard_data):
+    daily, m15 = dashboard_data
+    forecast, label = dashboard_forecast("ETH/USDT", daily, m15)
+
+    assert label == SCALED_LABEL
+    pd.testing.assert_series_equal(forecast, scaled_vol_forecast(daily, 5))
+
+
+@pytest.mark.parametrize("symbol", ["BTC/USDT", "SOL/USDT", "ETH/USDT"])
+def test_dashboard_forecast_without_m15_uses_scaled(dashboard_data, symbol):
+    daily, _ = dashboard_data
+    forecast, label = dashboard_forecast(symbol, daily, None)
+
+    assert label == SCALED_LABEL
+    pd.testing.assert_series_equal(forecast, scaled_vol_forecast(daily, 5))
+
+
+def test_dashboard_forecast_falls_back_when_latest_har_missing(dashboard_data):
+    daily, m15 = dashboard_data
+    stale = m15[m15.index < daily.index[-3]]          # 15-minute data ends 3 days early
+    forecast, label = dashboard_forecast("BTC/USDT", daily, stale)
+
+    har = har_forecast(daily_realized_vol(stale)).reindex(daily.index)
+    assert label != HAR_LABEL and SCALED_LABEL in label and str(daily.index[-1].date()) in label
+    assert forecast.iloc[-1] == scaled_vol_forecast(daily, 5).iloc[-1]
+    np.testing.assert_allclose(forecast.iloc[:-1].to_numpy(), har.iloc[:-1].to_numpy())
+
+
+def test_dashboard_forecast_aligned_with_daily_index(dashboard_data):
+    daily, m15 = dashboard_data
+    # 15-minute data that starts later and ends later than the daily data.
+    shifted = m15[m15.index >= daily.index[10]]
+    forecast, _ = dashboard_forecast("SOL/USDT", daily.iloc[:-5], shifted)
+
+    assert forecast.index.equals(daily.index[:-5])
+    assert forecast.name == "vol_forecast"
+
+
+@pytest.mark.parametrize("cut", [400, 410, N_DAYS - 1])
+def test_dashboard_forecast_uses_only_past_data(dashboard_data, cut):
+    daily, m15 = dashboard_data
+    full, _ = dashboard_forecast("BTC/USDT", daily, m15)
+    end = daily.index[cut] + pd.Timedelta(days=1)
+    truncated, label = dashboard_forecast("BTC/USDT", daily.iloc[:cut + 1], m15[m15.index < end])
+
+    assert label == HAR_LABEL
+    assert truncated.notna().sum() > 0
+    pd.testing.assert_series_equal(full.iloc[:cut + 1], truncated)
+
+
+def test_dashboard_forecast_does_not_modify_inputs(dashboard_data):
+    daily, m15 = dashboard_data
+    daily_before, m15_before = daily.copy(deep=True), m15.copy(deep=True)
+    dashboard_forecast("BTC/USDT", daily, m15)
+    pd.testing.assert_frame_equal(daily, daily_before)
+    pd.testing.assert_frame_equal(m15, m15_before)

@@ -179,3 +179,72 @@ def har_forecast(daily_rv, horizon=5, refit_every=30, min_train=365):
         if coef is not None and has_features[s]:
             forecast[s] = np.exp(coef[0] + features[s] @ coef[1:])
     return pd.Series(forecast, index=days, name="har_forecast").reindex(daily_rv.index)
+
+
+HAR_SYMBOLS = ("BTC/USDT", "SOL/USDT")
+HAR_LABEL = "HAR (realized volatility)"
+SCALED_LABEL = "20-day volatility (scaled)"
+
+
+def realized_vol_ahead(daily_rv, horizon=5):
+    """Realized volatility over the next ``horizon`` days, sqrt(mean of RV^2 over days t+1..t+horizon).
+
+    This is the outcome HAR forecasts, for comparing forecasts with what
+    happened. It uses future data by design and must never be used as a
+    feature. Dates absent from the index count as missing RV.
+
+    Parameters
+    ----------
+    daily_rv : pandas.Series
+        Daily realized volatility indexed by UTC date (output of ``daily_realized_vol``).
+    horizon : int, default 5
+        Number of days ahead.
+
+    Returns
+    -------
+    pandas.Series
+        Aligned with ``daily_rv``'s index, named ``realized_vol_ahead``; NaN
+        where any of the next ``horizon`` days is missing or not yet known.
+    """
+    _, _, target = _har_design(daily_rv, horizon)
+    days = pd.date_range(daily_rv.index[0], daily_rv.index[-1], freq="D").as_unit(daily_rv.index.unit)
+    return pd.Series(np.exp(target), index=days, name="realized_vol_ahead").reindex(daily_rv.index)
+
+
+def dashboard_forecast(symbol, daily, m15=None, horizon=5):
+    """The dashboard's daily volatility forecast for one asset, and the method used.
+
+    BTC/USDT and SOL/USDT with 15-minute data use ``har_forecast`` on
+    ``daily_realized_vol(m15)``; other assets, or no 15-minute data, use
+    ``scaled_vol_forecast``. If HAR has no value on the latest daily date
+    (for example, stale 15-minute data), that date falls back to the scaled
+    forecast and the label says so.
+
+    Parameters
+    ----------
+    symbol : str
+        Market symbol in CCXT format, e.g. ``"BTC/USDT"``.
+    daily : pandas.DataFrame
+        Daily data with ``log_return`` and ``vol_20`` columns, indexed by UTC date.
+    m15 : pandas.DataFrame, optional
+        15-minute candles from ``load_processed(..., timeframe="15m")``.
+    horizon : int, default 5
+        Forecast horizon in days.
+
+    Returns
+    -------
+    tuple of (pandas.Series, str)
+        Forecast daily volatility aligned with ``daily``'s index, named
+        ``vol_forecast``, and the method label.
+    """
+    scaled = scaled_vol_forecast(daily, horizon)
+    if symbol not in HAR_SYMBOLS or m15 is None:
+        return scaled, SCALED_LABEL
+
+    rv = daily_realized_vol(m15)
+    har = har_forecast(rv, horizon=horizon)
+    har = har.set_axis(har.index.as_unit(daily.index.unit)).reindex(daily.index).rename("vol_forecast")
+    if pd.isna(har.iloc[-1]):
+        har.iloc[-1] = scaled.iloc[-1]
+        return har, f"{SCALED_LABEL} on {daily.index[-1].date()}: HAR unavailable on that date"
+    return har, HAR_LABEL
