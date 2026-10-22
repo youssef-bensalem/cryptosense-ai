@@ -134,10 +134,10 @@ Planned additions, each introduced only when there is a reason for it:
 | 6 | Historical evaluation and backtesting | ✅ Complete |
 | 7 | Streamlit web application | ✅ Complete |
 | 8 | Intraday exploration (cost versus move, volatility by hour) | ✅ Complete |
-| 9 | Intraday features | ⏭️ Next |
-| 10 | Intraday setups | Planned |
-| 11 | Intraday backtesting | Planned |
-| 12 | Intraday dashboard section | Planned |
+| 9 | Intraday features | ✅ Complete |
+| 10 | Intraday setups | ✅ Complete |
+| 11 | Intraday backtesting | ⏸️ Paused |
+| 12 | Intraday dashboard section | ⏸️ Paused |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -280,6 +280,8 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 ### Phase 12 — Intraday dashboard section
 
 **Goal:** add to the dashboard only what holds up in Phases 10–11, with its uncertainty shown.
+
+**Status (paused):** Phase 9 chose the 09:00–10:59 New York window, where 1-hour moves are largest relative to costs. Phase 10 evaluated two pre-registered setups (S1, a volume-confirmed push into the open; S2, an uptrend dip into the open) on development data: neither differed from base rates or hour-matched random entries, and the average window hour returned about −0.31% after costs, so gross 1-hour moves averaged roughly zero. The held-out period (2024 onward) was not used and remains unseen for future intraday hypotheses. Phases 11–12 are paused; the 15-minute data, features module and tests remain available.
 
 ---
 
