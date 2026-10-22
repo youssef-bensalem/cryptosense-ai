@@ -138,7 +138,7 @@ Planned additions, each introduced only when there is a reason for it:
 | 10 | Intraday setups | ✅ Complete |
 | 11 | Intraday backtesting | ⏸️ Paused |
 | 12 | Intraday dashboard section | ⏸️ Paused |
-| 13 | One-day holding period track | ⏭️ Next |
+| 13 | One-day holding period track | ✅ Complete |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -287,6 +287,8 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 ## One-day holding period track (Phase 13)
 
 **Goal:** test whether new, pre-registered daily setups held for one day (buy at the next open, sell at the following open) beat base rates after 0.30% round-trip costs. In 2023–2026 that cost was 11–14% of a typical one-day move. BTC first; ETH and SOL as unchanged replication. Development to 2023-12-31; held-out test from 2024-01-01, run once. Limitation: 2024 onward daily data was already examined in Phases 4–6, so the held-out test is not fully untouched; replication on ETH and SOL is the main independent check. Gates: exploration (volatility only), pre-registration approved before any outcome, development evaluation, then one held-out run.
+
+**Result:** No one-day setup showed a reliable edge. D1 was indistinguishable from base rates on BTC and SOL. D2 was worse than random on BTC and looked promising on SOL in development, but the exploratory SOL test did not replicate on held-out data. The same rule behaving oppositely on BTC and SOL shows that setup results cannot be transferred between assets, even when their prices move together.
 
 ---
 
