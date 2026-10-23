@@ -47,7 +47,8 @@ def _pct(value):
 
 
 def _money(value):
-    return "unknown" if value is None else f"${value:,.2f}"
+    """Prices are in USDT; no "$" sign, because Streamlit treats text between two "$" as a math formula."""
+    return "unknown" if value is None else f"{value:,.2f} USDT"
 
 
 def build_plain_fact_sheet(facts, insights):
@@ -96,6 +97,9 @@ DIRECTIONAL_PATTERNS = [
     r"\bpossible (dip|drop|rise|rally)\b",
 ]
 TRADE_QUESTION = re.compile(r"\b(buy|sell|enter|exit|invest|long|short|trade)\b", re.IGNORECASE)
+DIRECTION_QUESTION = re.compile(
+    r"\b(go(ing)? (up|down)|rise|rising|fall|falling|drop|pump|dump|bullish|bearish|moon|crash|"
+    r"higher|lower|up or down|direction)\b", re.IGNORECASE)
 
 
 def violates_rules(answer):
@@ -104,22 +108,26 @@ def violates_rules(answer):
     return any(re.search(pattern, text) for pattern in DIRECTIONAL_PATTERNS)
 
 
-def trade_decision_answer(facts, insights):
-    """A fixed, checked answer to 'should I buy/sell' questions, built only from the facts."""
+def trade_decision_answer(facts, insights, opening=None):
+    """A fixed, checked answer to buy/sell or direction questions, built only from the facts.
+
+    Written as Markdown: a paragraph, a bullet list, then the disclaimer as its own paragraph.
+    """
     f = facts
-    parts = [f"I can't tell you whether to buy or sell: none of the patterns tested in this project "
-             f"predicted the direction of {f.get('asset')} reliably after costs. Here is what the data says "
-             "to help you decide for yourself:"]
+    opening = opening or (f"I can't tell you whether to buy or sell: none of the patterns tested in this "
+                          f"project predicted the direction of {f.get('asset')} reliably after costs.")
+    parts = [opening + " Here is what the data says to help you decide for yourself:", ""]
     if f.get("swing_1d") is not None:
         parts.append(f"- A typical move tomorrow is about ±{f['swing_1d']:.1%} "
                      f"(roughly {_money(f.get('range_low'))} to {_money(f.get('range_high'))}), in either direction.")
     parts.append(f"- Trend: {TREND_WORDS.get(f.get('trend'), 'not enough history')}; "
                  f"turbulence: {VOL_WORDS.get(f.get('vol_regime'), 'not enough history')}.")
     for insight in insights:
-        if insight.kind in ("risk", "warning"):
+        if insight.kind in ("risk", "warning") or insight.title.startswith(("Tomorrow is", "Active US market")):
             parts.append(f"- {insight.title}: {insight.text}")
     parts.append("- If you do trade, decide in advance how much you can afford to lose, and use the risk helper "
                  "in the dashboard to size the position and place a stop.")
+    parts.append("")
     parts.append("This is information, not financial advice.")
     return "\n".join(parts)
 
@@ -156,6 +164,10 @@ def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
     """Ask the assistant a question; returns the answer text, or a friendly error message."""
     if question and TRADE_QUESTION.search(question):
         return trade_decision_answer(facts, insights)
+    if question and DIRECTION_QUESTION.search(question):
+        return trade_decision_answer(facts, insights, opening=(
+            f"Nobody can reliably say whether {facts.get('asset')} will go up or down tomorrow: none of the "
+            "patterns tested in this project predicted the direction reliably after costs."))
     if client is None:
         return "The assistant is not configured: no API key was found."
     request = build_request(question, facts, insights, history, model)
@@ -165,8 +177,8 @@ def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
         return f"The assistant is unavailable right now ({type(error).__name__}). The rest of the dashboard still works."
     answer = "".join(block.text for block in response.content if getattr(block, "type", "text") == "text")
     if violates_rules(answer):
-        return ("The assistant's answer was withheld because it suggested a price direction, which this "
-                "project's research does not support.\n\n" + trade_decision_answer(facts, insights))
+        return ("*The assistant's answer was withheld because it suggested a price direction, which this "
+                "project's research does not support.*\n\n" + trade_decision_answer(facts, insights))
     return answer
 
 
@@ -176,7 +188,7 @@ def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
 # ---------------------------------------------------------------------------
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_MODEL = "llama3.2"
 
 
 class OllamaClient:
