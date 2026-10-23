@@ -20,7 +20,8 @@ from cryptosense.explain import (
     describe_setup, describe_trend, describe_volatility, evidence_meaning, evidence_strength,
     position_size, stop_level, suggested_stop, typical_move_range,
 )
-from cryptosense.context import derive_insights, describe_swing, us_open_activity
+from cryptosense.context import derive_insights
+from cryptosense.facts import build_facts
 from cryptosense.one_day import us_open_measures
 from cryptosense.assistant import ask, get_local_client
 
@@ -62,13 +63,32 @@ def load_forecast(symbol, horizon=5):
 
 
 @st.cache_data
-def load_us_open_activity(symbol, date):
-    """Tercile of the US-open activity on `date` ("low", "middle", "high"), or None."""
-    m15 = load_m15(symbol)
+def load_rv_open(symbol, date):
+    """US-open realized volatility on `date` from 15-minute data, or None (ETH, or no data that day)."""
+    m15 = load_m15(symbol) if symbol in HAR_SYMBOLS else None
     if m15 is None:
         return None
     rv_open = us_open_measures(m15)["rv_open"].get(date)
-    return us_open_activity(symbol, None if rv_open is None else float(rv_open))
+    return None if rv_open is None or pd.isna(rv_open) else float(rv_open)
+
+
+@st.cache_data
+def load_active_patterns(symbol):
+    """Setups flagged on the latest day: name, plain-language description and evidence badge."""
+    df = load_symbol(symbol)
+    patterns = []
+    for setup in SETUPS:
+        e = explain_setup(df, df.index[-1], setup)
+        if not e["flagged"]:
+            continue
+        have_stats = e["past_mean_return"] is not None and e["past_mean_se"] is not None
+        gap = e["past_mean_return"] - e["base_same_trend_mean"] if have_stats else float("nan")
+        se = e["past_mean_se"] if have_stats else float("nan")
+        evidence = evidence_strength(gap, se, e["past_episodes"])
+        if symbol != "BTC/USDT":
+            evidence += " (designed on BTC)"
+        patterns.append({"name": setup, "description": describe_setup(setup), "evidence": evidence})
+    return patterns
 
 
 @st.cache_resource(ttl=60)
@@ -169,15 +189,8 @@ def in_range(frame):
 
 # Facts and deductions for tomorrow, shared by "Today & tomorrow" and the assistant.
 forecast_1d, forecast_1d_method = load_forecast(symbol, horizon=1)
-swing_1d = forecast_1d.iloc[-1]
-facts = {
-    "asset": symbol,
-    "swing_1d": None if pd.isna(swing_1d) else round(float(swing_1d), 4),
-    "vol_regime": None if pd.isna(df["vol_regime"].iloc[-1]) else df["vol_regime"].iloc[-1],
-    "us_open_activity": load_us_open_activity(symbol, last_date),
-    "next_weekday": (last_date + pd.Timedelta(days=1)).day_name(),
-    "data_age_days": age_days,
-}
+facts = build_facts(df, symbol, forecast_1d.iloc[-1], forecast_1d_method,
+                    rv_open=load_rv_open(symbol, last_date), patterns=load_active_patterns(symbol))
 insights = derive_insights(facts)
 
 today_tab, assistant_tab, summary, overview, conditions, setups, volatility, backtest = st.tabs(
@@ -191,15 +204,14 @@ with today_tab:
     st.caption(f"Based on the last complete day, {last_date.date()}. Method: {forecast_1d_method}.")
 
     swing_1d_word = "swing" if forecast_1d_method == HAR_LABEL else "move"
-    if facts["swing_1d"] is None:
+    if facts["swing_1d"] is None or facts["range_low"] is None:
         st.info("Not enough history to estimate tomorrow's typical swing.")
     else:
-        r = describe_swing(close_today, facts["swing_1d"])
         swing_1d_name = ("typical swing (including moves within the day)"
                          if forecast_1d_method == HAR_LABEL else "typical move")
         col1, col2 = st.columns(2)
-        col1.metric(f"Tomorrow's {swing_1d_name}", f"±{r['swing']:.1%}")
-        col2.metric("Typical range", f"{r['low']:,.2f} – {r['high']:,.2f} USDT")
+        col1.metric(f"Tomorrow's {swing_1d_name}", f"±{facts['swing_1d']:.1%}")
+        col2.metric("Typical range", f"{facts['range_low']:,.2f} – {facts['range_high']:,.2f} USDT")
         st.caption(f"From today's close of {close_today:,.2f} USDT. This is a typical size of move, "
                    "not a direction; larger moves do happen.")
 
