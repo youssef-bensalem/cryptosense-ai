@@ -27,7 +27,10 @@ def build_fact_sheet(facts, insights):
     """Format computed facts and deductions as plain text for the model."""
     lines = ["FACT SHEET"]
     for key in sorted(facts):
-        lines.append(f"- {key}: {facts[key]}")
+        value = facts[key]
+        if isinstance(value, float):
+            value = f"{value:.6g}"
+        lines.append(f"- {key}: {value}")
     lines.append("DEDUCTIONS")
     for insight in insights:
         lines.append(f"- {insight.title}: {insight.text} (evidence: {insight.evidence})")
