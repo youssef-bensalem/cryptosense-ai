@@ -20,9 +20,14 @@ from cryptosense.explain import (
     describe_setup, describe_trend, describe_volatility, evidence_meaning, evidence_strength,
     position_size, stop_level, suggested_stop, typical_move_range,
 )
+from cryptosense.context import derive_insights, describe_swing, us_open_activity
+from cryptosense.one_day import us_open_measures
+from cryptosense.assistant import ask, get_local_client
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-WATCHLIST = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+WATCHLIST = ["SOL/USDT", "BTC/USDT", "ETH/USDT"]
+CHART_RANGES = {"1 month": pd.DateOffset(months=1), "3 months": pd.DateOffset(months=3),
+                "1 year": pd.DateOffset(years=1), "All": None}
 
 REPLICATION_NOTES = {
     "ETH/USDT": (
@@ -51,9 +56,25 @@ def load_m15(symbol):
 
 
 @st.cache_data
-def load_forecast(symbol):
-    """Dashboard 5-day volatility forecast and its method label, cached between reruns."""
-    return dashboard_forecast(symbol, load_symbol(symbol), load_m15(symbol), horizon=5)
+def load_forecast(symbol, horizon=5):
+    """Dashboard volatility forecast over `horizon` days and its method label, cached between reruns."""
+    return dashboard_forecast(symbol, load_symbol(symbol), load_m15(symbol), horizon=horizon)
+
+
+@st.cache_data
+def load_us_open_activity(symbol, date):
+    """Tercile of the US-open activity on `date` ("low", "middle", "high"), or None."""
+    m15 = load_m15(symbol)
+    if m15 is None:
+        return None
+    rv_open = us_open_measures(m15)["rv_open"].get(date)
+    return us_open_activity(symbol, None if rv_open is None else float(rv_open))
+
+
+@st.cache_resource(ttl=60)
+def local_client():
+    """Local Ollama client, or None if Ollama is not running; checked again after a minute."""
+    return get_local_client()
 
 
 @st.cache_data
@@ -133,9 +154,129 @@ age_days = (pd.Timestamp.now(tz="UTC").normalize() - last_date).days
 st.sidebar.write(f"Last complete candle: **{last_date.date()}**")
 st.sidebar.write(f"Data age: {age_days} day(s)")
 
-summary, overview, conditions, setups, volatility, backtest = st.tabs(
-    ["Summary", "Market overview", "Market conditions", "Setup research", "Volatility", "Backtesting"]
+chart_range = st.sidebar.segmented_control(
+    "Chart range", list(CHART_RANGES), default="3 months", required=True,
+    help="Period shown in the daily charts.",
 )
+range_offset = CHART_RANGES[chart_range]
+range_start = None if range_offset is None else last_date - range_offset
+
+
+def in_range(frame):
+    """The rows of a daily frame inside the selected chart range."""
+    return frame if range_start is None else frame.loc[range_start:]
+
+
+# Facts and deductions for tomorrow, shared by "Today & tomorrow" and the assistant.
+forecast_1d, forecast_1d_method = load_forecast(symbol, horizon=1)
+swing_1d = forecast_1d.iloc[-1]
+facts = {
+    "asset": symbol,
+    "swing_1d": None if pd.isna(swing_1d) else round(float(swing_1d), 4),
+    "vol_regime": None if pd.isna(df["vol_regime"].iloc[-1]) else df["vol_regime"].iloc[-1],
+    "us_open_activity": load_us_open_activity(symbol, last_date),
+    "next_weekday": (last_date + pd.Timedelta(days=1)).day_name(),
+    "data_age_days": age_days,
+}
+insights = derive_insights(facts)
+
+today_tab, assistant_tab, summary, overview, conditions, setups, volatility, backtest = st.tabs(
+    ["Today & tomorrow", "Ask the assistant", "Summary", "Market overview", "Market conditions",
+     "Patterns (research)", "Volatility", "Strategy test results"]
+)
+
+with today_tab:
+    close_today = df["close"].iloc[-1]
+    st.subheader(f"{symbol}: what to expect tomorrow ({(last_date + pd.Timedelta(days=1)).date()})")
+    st.caption(f"Based on the last complete day, {last_date.date()}. Method: {forecast_1d_method}.")
+
+    swing_1d_word = "swing" if forecast_1d_method == HAR_LABEL else "move"
+    if facts["swing_1d"] is None:
+        st.info("Not enough history to estimate tomorrow's typical swing.")
+    else:
+        r = describe_swing(close_today, facts["swing_1d"])
+        swing_1d_name = ("typical swing (including moves within the day)"
+                         if forecast_1d_method == HAR_LABEL else "typical move")
+        col1, col2 = st.columns(2)
+        col1.metric(f"Tomorrow's {swing_1d_name}", f"±{r['swing']:.1%}")
+        col2.metric("Typical range", f"{r['low']:,.2f} – {r['high']:,.2f} USDT")
+        st.caption(f"From today's close of {close_today:,.2f} USDT. This is a typical size of move, "
+                   "not a direction; larger moves do happen.")
+
+    st.markdown("#### What this means")
+    for insight in sorted(insights, key=lambda i: i.kind != "warning"):
+        if insight.kind == "warning":
+            st.warning(insight.text, title=insight.title)
+            st.caption(f"Evidence: {insight.evidence}")
+        else:
+            with st.container(border=True):
+                st.markdown(f"**{insight.title}**")
+                st.write(insight.text)
+                st.caption(f"Evidence: {insight.evidence}")
+
+    st.markdown("#### Risk helper")
+    if facts["swing_1d"] is not None:
+        col1, col2 = st.columns(2)
+        account_1d = col1.number_input("Account size (USDT)", min_value=1.0, value=1000.0, step=100.0,
+                                       key="account_1d")
+        risk_pct_1d = col2.number_input(
+            "Share of the account you are willing to lose on one trade (%)",
+            min_value=0.1, max_value=100.0, value=1.0, step=0.5, key="risk_pct_1d",
+        )
+        stop_price_1d, stop_fraction_1d = stop_level(close_today, suggested_stop(facts["swing_1d"]))
+        invest_1d = position_size(account_1d, risk_pct_1d / 100, stop_fraction_1d)
+        col1, col2 = st.columns(2)
+        col1.metric("Suggested stop", f"{stop_price_1d:,.2f} USDT",
+                    f"-{stop_fraction_1d:.1%} below today's close", delta_color="off")
+        col2.metric("Position size", f"{invest_1d:,.2f} USDT")
+        st.write(
+            f"Placing the stop at twice tomorrow's typical {swing_1d_word}, investing {invest_1d:,.2f} USDT means that "
+            f"hitting the stop loses about {account_1d * risk_pct_1d / 100:,.2f} USDT "
+            f"({risk_pct_1d:g}% of the account), before costs."
+        )
+        if invest_1d > account_1d:
+            st.warning("This is more than the account size; it would require borrowing, which this tool does not assume.")
+        st.caption("Prices can jump past a stop in fast markets.")
+
+    st.markdown("#### Last 3 days, every 15 minutes")
+    m15 = load_m15(symbol) if symbol in HAR_SYMBOLS else None
+    if m15 is None:
+        st.caption("No intraday data for this asset." if symbol not in HAR_SYMBOLS else
+                   "No 15-minute data yet. Click **Refresh data from Binance** to download it.")
+    else:
+        recent_m15 = m15.loc[m15.index[-1] - pd.Timedelta(days=3):]
+        intraday_fig = px.line(recent_m15, y="close", title=f"{symbol} 15-minute close, last 3 days (UTC)")
+        st.plotly_chart(intraday_fig, width="stretch")
+
+    st.divider()
+    st.write("This describes conditions and risk. It is not advice to buy or sell.")
+
+with assistant_tab:
+    client = local_client()
+    if client is None:
+        st.info(
+            "To use the free local assistant:\n"
+            "1. Install Ollama from [ollama.com/download](https://ollama.com/download).\n"
+            "2. In PowerShell, run `ollama pull llama3.2`.\n"
+            "3. Make sure Ollama is running, then reload this page.",
+            title="The assistant is not available",
+        )
+    else:
+        st.caption("Answers use only the facts and deductions on the **Today & tomorrow** tab. "
+                   "Information, not financial advice.")
+        chats = st.session_state.setdefault("chats", {})
+        history = chats.setdefault(symbol, [])
+        for message in history:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+        if question := st.chat_input(f"Ask about {symbol} today", submit_mode="disable"):
+            with st.chat_message("user"):
+                st.markdown(question)
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    answer = ask(question, facts, insights, client, history=history)
+                st.markdown(answer)
+            history += [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
 
 with summary:
     today = df.iloc[-1]
@@ -209,10 +350,10 @@ with overview:
     col2.metric("1-day change", f"{close.iloc[-1] / close.iloc[-2] - 1:+.2%}")
     col3.metric("30-day change", f"{close.iloc[-1] / close.iloc[-31] - 1:+.2%}")
 
-    price_fig = px.line(df, y="close", log_y=True, title=f"{symbol} daily close (log scale)")
+    price_fig = px.line(in_range(df), y="close", log_y=True, title=f"{symbol} daily close (log scale)")
     st.plotly_chart(price_fig, width="stretch")
 
-    volume_fig = px.bar(df, y="volume", title=f"{symbol} daily volume (base asset units)")
+    volume_fig = px.bar(in_range(df), y="volume", title=f"{symbol} daily volume (base asset units)")
     st.plotly_chart(volume_fig, width="stretch")
 
 with conditions:
@@ -235,7 +376,7 @@ with conditions:
     col4.metric("Efficiency ratio (20d)", f"{today['er_20']:.2f}")
 
     regime_fig = px.scatter(
-        df.dropna(subset=["trend"]), y="close", color="trend", log_y=True,
+        in_range(df).dropna(subset=["trend"]), y="close", color="trend", log_y=True,
         color_discrete_map={"up": "#2ca02c", "down": "#d62728", "range": "#7f7f7f"},
         title=f"{symbol} trend regimes",
     )
@@ -319,11 +460,11 @@ with volatility:
     else:
         realized = np.sqrt((df["log_return"] ** 2).rolling(HORIZON).mean()).shift(-HORIZON)
         realized_name = f"realized next {HORIZON} days"
-    comparison = pd.DataFrame({
+    comparison = in_range(pd.DataFrame({
         "forecast": forecast,
         realized_name: realized,
-    }).loc[last_date - pd.Timedelta(days=730):] * np.sqrt(365)
-    vol_fig = px.line(comparison, title="Forecast vs realized volatility, last 2 years (annualised)")
+    })) * np.sqrt(365)
+    vol_fig = px.line(comparison, title="Forecast vs realized volatility (annualised)")
     vol_fig.update_yaxes(tickformat=".0%")
     st.plotly_chart(vol_fig, width="stretch")
     st.caption(
@@ -351,7 +492,7 @@ with backtest:
                                    na_rep="—")
     )
 
-    equity_fig = px.line(curves, log_y=True, title="Account value (start = 1.0, log scale)")
+    equity_fig = px.line(in_range(curves), log_y=True, title="Account value (1.0 at the start of the backtest, log scale)")
     st.plotly_chart(equity_fig, width="stretch")
 
     st.caption(
