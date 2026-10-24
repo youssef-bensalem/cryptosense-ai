@@ -92,15 +92,21 @@ cryptosense-ai/
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── assistant.py        # AI assistant: fact sheet, rules, fixed answers and guard
 │       ├── backtest.py         # fixed-holding-period backtester and metrics
+│       ├── context.py          # plain-language deductions about current conditions
 │       ├── data.py             # market data fetching and preparation
+│       ├── facts.py            # facts about the latest day for the deductions and assistant
 │       ├── features.py         # feature engineering
 │       ├── regimes.py          # rule-based market regimes
 │       ├── setups.py           # rule-based setups and explanations
 │       └── volatility.py       # point-in-time volatility forecast
 ├── tests/
+│   ├── test_assistant.py       # tests for the assistant (fact sheet, fixed answers, guard)
 │   ├── test_backtest.py        # tests for the backtester
+│   ├── test_context.py         # tests for the deductions
 │   ├── test_data.py            # tests for the data module
+│   ├── test_facts.py           # tests for the facts
 │   ├── test_features.py        # tests for the features module, incl. leakage
 │   ├── test_regimes.py         # tests for the regimes module, incl. leakage
 │   ├── test_setups.py          # tests for the setups module, incl. leakage
@@ -140,6 +146,7 @@ Planned additions, each introduced only when there is a reason for it:
 | 12 | Intraday dashboard section | ⏸️ Paused |
 | 13 | One-day holding period track | ✅ Complete |
 | 14 | Realized volatility and HAR forecast | ⏭️ Next |
+| 15 | Client-focused dashboard and local AI assistant | ✅ Complete |
 
 ### Phase 1 — Project setup and market data ✅
 
@@ -296,6 +303,12 @@ Developed on the `intraday` branch; `main` stays as the finished daily project (
 **Goal:** improve the 5-day volatility forecast used by the dashboard (price range, stops, position size) with realized volatility from 15-minute data and a HAR model, for BTC and SOL. Competitors: raw vol_20, scaled vol_20 (current forecast, the one to beat), scaled 20-day realized volatility, HAR (log realized volatility over 1, 5 and 22 days). Periods: BTC train to 2021, validation 2022–2023, test 2024 onward; SOL train to 2022, validation 2023, test 2024 onward; 5-day purge; test run once. MAE (primary) and RMSE, as improvement over scaled vol_20, by year. Adoption rule: the new forecast replaces the current one only if it beats scaled vol_20 on validation for both assets and the test does not contradict it. Limitation: BTC's 2024+ period was already used in Phase 4; SOL's was not, so SOL is the cleaner test.
 
 **Result:** HAR adopted for BTC and SOL (test MAE improvement on realized volatility: BTC +21.2%, SOL +11.3%); not better for close-based volatility. Integration into the dashboard is next.
+
+## Client-focused dashboard and local AI assistant (Phase 15)
+
+**Goal:** make the dashboard usable by a non-technical user, without adding claims the research does not support. The dashboard opens on SOL/USDT with a "Today & tomorrow" tab: tomorrow's typical swing (HAR forecast for BTC and SOL, scaled 20-day volatility for ETH) as a percentage and a price range, plain-language deductions about current conditions (`context.py`, each naming its evidence), a risk helper for one-day trades, and the last 3 days of 15-minute prices. The facts behind these come from `facts.py`. An "Ask the assistant" tab answers questions with a free local model through Ollama (llama3.2 by default); `assistant.py` gives the model only those facts and deductions, answers buy/sell and price-direction questions with a fixed answer built from the facts, and withholds model answers that match direction or trade phrases. Charts show daily points with a 1-month to all-history range selector; "Setup research" and "Backtesting" were renamed "Patterns (research)" and "Strategy test results".
+
+**Limitation:** the assistant explains conditions and risk only. Small local models do not reliably follow rules, which is why trade and direction questions are answered by fixed, tested code and other answers pass through a guard.
 
 ---
 

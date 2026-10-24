@@ -43,7 +43,9 @@ This is also a learning project: every component is built step by step, with the
 
 **After the roadmap.** Three extensions followed the seven phases. (1) Multi-asset replication (`notebooks/08_multi_asset.ipynb`): the BTC-designed setups were applied unchanged to ETH and SOL. On ETH, neither setup showed an advantage over random trades taken during uptrends. On SOL, the continuation setup beat an average day of the same year in every year since 2021 and did not depend on a few trades, but its advantage shrank from about +10% to about +2% per 5 days in recent years. (2) Timeframe support in the data layer: `src/cryptosense/data.py` can fetch, validate and store any fixed-length timeframe (such as 15m); the default of 1d is unchanged, and the analysis modules still assume daily data. (3) Entry timing (`notebooks/09_entry_timing.ipynb`): using 15-minute BTC data, delaying entry by 1, 4 or 12 hours after a continuation signal did not improve entry prices on development or held-out data, so the backtester keeps its next-day-open entry.
 
-**Testing.** 77 automated pytest tests cover the data, feature, regime, setup, volatility and backtest modules, including pagination edge cases tested against a simulated exchange, timeframe handling for intraday data, leakage tests for features, regimes, setup explanations and the volatility forecast, an end-to-end test of the data refresh pipeline, and hand-checkable backtest cases.
+**Client-focused dashboard and assistant.** The dashboard opens on SOL/USDT with a 'Today & tomorrow' view: tomorrow's typical price swing from the HAR forecast, plain-language deductions about current conditions (each naming its evidence), and a risk helper for one-day trades. An 'Ask the assistant' tab answers questions in plain language using a free local AI model (Ollama, llama3.2 by default), which only sees facts computed by tested code. Questions about buying, selling or price direction get a fixed, checked answer, and any model answer that predicts direction is withheld.
+
+**Testing.** 293 automated pytest tests cover the data, feature, regime, setup, volatility and backtest modules, including pagination edge cases tested against a simulated exchange, timeframe handling for intraday data, leakage tests for features, regimes, setup explanations and the volatility forecast, an end-to-end test of the data refresh pipeline, and hand-checkable backtest cases.
 
 The roadmap is complete. Possible extensions are listed under "Future enhancements" in [ROADMAP.md](ROADMAP.md).
 
@@ -82,6 +84,16 @@ streamlit run app/main.py
 
 The dashboard opens in your browser (usually at http://localhost:8501). On a fresh clone there is no data yet: click **Refresh data from Binance** in the sidebar to download and validate it. Stop the dashboard with Ctrl+C in the terminal.
 
+### Optional: the assistant
+
+The "Ask the assistant" tab uses a free AI model that runs on your own computer through Ollama; no API key is needed and nothing leaves your machine.
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download).
+2. In PowerShell, run `ollama pull llama3.2`. The larger `llama3.1:8b` (needs about 8 GB of RAM) can be used instead by setting `OLLAMA_MODEL` in `src/cryptosense/assistant.py`.
+3. Make sure Ollama is running, then start the dashboard.
+
+Without Ollama, everything except the assistant tab works.
+
 ## Project structure
 
 ```
@@ -92,8 +104,11 @@ cryptosense-ai/
 ├── src/
 │   └── cryptosense/            # reusable package (editable install)
 │       ├── __init__.py         # marks the folder as a package
+│       ├── assistant.py        # AI assistant: fact sheet, rules, fixed answers and guard
 │       ├── backtest.py         # fixed-holding-period backtester and metrics
+│       ├── context.py          # plain-language deductions about current conditions
 │       ├── data.py             # market data fetching and preparation
+│       ├── facts.py            # facts about the latest day for the deductions and assistant
 │       ├── features.py         # feature engineering
 │       ├── setups.py           # rule-based setups and explanations
 │       └── volatility.py       # point-in-time volatility forecast

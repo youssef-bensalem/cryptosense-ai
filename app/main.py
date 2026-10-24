@@ -280,14 +280,15 @@ with assistant_tab:
         history = chats.setdefault(symbol, [])
         for message in history:
             with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+                content = message["content"]
+                st.markdown(content.replace("$", "\\$") if message["role"] == "assistant" else content)
         if question := st.chat_input(f"Ask about {symbol} today", submit_mode="disable"):
             with st.chat_message("user"):
                 st.markdown(question)
             with st.chat_message("assistant"):
                 with st.spinner("Thinking..."):
                     answer = ask(question, facts, insights, client, history=history)
-                st.markdown(answer)
+                st.markdown(answer.replace("$", "\\$"))
             history += [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
 
 with summary:
