@@ -358,3 +358,9 @@ python -m pip install -r requirements.txt
 ```
 
 Then open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.venv` kernel, and use Restart and Run All. The notebook creates the `data/` folders, fetches the data, validates it, saves it, and draws the charts.
+
+
+## News-sentiment track
+
+**Collection start:** 2026-10-24T22:01:53Z (first run of python -m cryptosense.news.collect). Articles published before this time are backlog and are excluded from evaluation.
+**Sources (fixed for the whole collection period):** coindesk, cointelegraph, decrypt, theblock, bitcoinmagazine.

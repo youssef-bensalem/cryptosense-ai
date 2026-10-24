@@ -6,4 +6,6 @@ ipykernel==7.4.0
 pytest==9.1.1
 scikit-learn==1.9.1
 streamlit==1.66.1
+requests==2.34.2
+feedparser==6.0.14
 -e .
