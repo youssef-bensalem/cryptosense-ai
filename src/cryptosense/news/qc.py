@@ -20,12 +20,12 @@ MY_LABEL_COLUMNS = ["my_relevance_btc", "my_relevance_sol", "my_sentiment_btc",
 QC_SAMPLE_COLUMNS = ["article_id", "source", "title", "summary", *MY_LABEL_COLUMNS]
 
 
-def draw_qc_sample(articles, per_source=5, seed=0):
+def draw_qc_sample(articles, per_source=5, seed=0, exclude=None):
     """Draw a random sample of ``per_source`` articles from every source.
 
     Articles are sorted by id before sampling, so the draw depends only on
-    the set of articles and the seed, not on the row order of the file.
-    Sources are returned in alphabetical order.
+    the set of articles, the excluded ids and the seed, not on the row order
+    of the file. Sources are returned in alphabetical order.
 
     Parameters
     ----------
@@ -36,6 +36,9 @@ def draw_qc_sample(articles, per_source=5, seed=0):
         Articles to draw from each source.
     seed : int
         Random seed.
+    exclude : iterable of str or None
+        Article ids that must not be drawn (for example an earlier sample).
+        They are removed before sampling.
 
     Returns
     -------
@@ -45,8 +48,10 @@ def draw_qc_sample(articles, per_source=5, seed=0):
     Raises
     ------
     ValueError
-        If any source has fewer than ``per_source`` articles.
+        If any source has fewer than ``per_source`` articles after exclusion.
     """
+    if exclude is not None:
+        articles = articles[~articles["id"].isin(set(exclude))]
     counts = articles["source"].value_counts()
     short = sorted(counts[counts < per_source].index)
     if short:
@@ -163,7 +168,7 @@ def label_qc_sample(key, sample, path, runs=2, session=None, now=None, sleep=tim
             result["attempted"] += 1
             try:
                 summary = strip_boilerplate(article["source"], article["summary"])
-                content, model_reported = request_label(session, key, article["title"], summary)
+                content, model_reported, _ = request_label(session, key, article["title"], summary)
             except ModelUnavailable as exc:
                 result["failed"] += 1
                 result["error"] = str(exc)
@@ -337,17 +342,37 @@ def run_consistency(labels, first=1, second=2):
 
     Only rows kept by ``current_model_labels`` are used, and only articles
     with such a label in both runs count; values are compared as stored in
-    the CSV.
+    the CSV. For the sentiment fields, the share with the same direction
+    (negative / neutral / positive) is reported alongside; a null sentiment
+    is its own category, so null versus 0 counts as different.
 
     Returns
     -------
     pandas.DataFrame
-        Indexed by field, columns ``n``, ``agree``, ``share`` and ``se``.
+        Indexed by field, columns ``n``, ``agree``, ``share`` and ``se`` for
+        exact identity, and ``direction_agree``, ``direction_share`` and
+        ``direction_se`` (NaN for fields that are not sentiments).
     """
     valid = current_model_labels(labels)
     a = valid[valid["run"].astype(str) == str(first)].set_index("article_id")
     b = valid[valid["run"].astype(str) == str(second)].set_index("article_id")
     common = a.index.intersection(b.index)
-    return pd.DataFrame.from_dict(
-        {field: _share(list(a.loc[common, field] == b.loc[common, field])) for field in LABEL_FIELDS},
-        orient="index")
+    rows = {}
+    for field in LABEL_FIELDS:
+        rows[field] = _share(list(a.loc[common, field] == b.loc[common, field]))
+        if field.startswith("sentiment_"):
+            same = [_stored_direction(x) == _stored_direction(y)
+                    for x, y in zip(a.loc[common, field], b.loc[common, field])]
+            direction = _share(same)
+            rows[field].update(direction_agree=direction["agree"], direction_share=direction["share"],
+                               direction_se=direction["se"])
+        else:
+            rows[field].update(direction_agree=float("nan"), direction_share=float("nan"),
+                               direction_se=float("nan"))
+    return pd.DataFrame.from_dict(rows, orient="index")
+
+
+def _stored_direction(value):
+    """Direction of a stored sentiment cell: -1, 0 or 1, or None for an empty cell."""
+    sentiment = _to_sentiment(value)
+    return None if sentiment is None else _direction(sentiment)

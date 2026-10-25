@@ -33,7 +33,7 @@ MODEL = "gpt-oss-120b"
 EXPECTED_REPORTED_MODEL = "openai/gpt-oss-120b"
 TEMPERATURE = 0
 TIMEOUT_S = 60
-BACKOFF_S = 4.0
+BACKOFF_S = 12.0
 ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
 KEY_NAME = "FREELLMAPI_KEY"
 
@@ -48,25 +48,36 @@ LABEL_FIELDS = [
 ]
 LABEL_COLUMNS = ["article_id", "model_requested", "model_reported", "prompt_version", "labeled_utc",
                  *LABEL_FIELDS]
-RUN_COLUMNS = ["run_utc", "attempted", "labeled", "invalid", "failed", "error"]
+TOKEN_FIELDS = ["prompt_tokens", "completion_tokens", "total_tokens"]
+RUN_COLUMNS = ["run_utc", "attempted", "labeled", "invalid", "failed", "error", *TOKEN_FIELDS]
 
 PROMPT_TEMPLATE = """You label crypto news articles for a research dataset.
 
 Judge ONLY the text given below. Do not use outside knowledge, and in particular
 do not use any knowledge of events or prices after this article was written.
 
+How to judge sentiment:
+- Sentiment judges the implication of a NEW event for prices. A report that the
+  price moved, without a new underlying event, is 0.
+- +2 or -2 only for major, rare events: a country-level ban or approval, a major
+  exchange collapse or hack, record institutional moves.
+- +1 or -1 for ordinary positive or negative news.
+- 0 for neutral, mixed or purely factual news, and for price-move reports.
+
 Return JSON only: a single JSON object, with no code fences, no comments and no
 other text. It must have exactly these keys:
 - "relevance_btc": true or false. Is the article materially about Bitcoin (BTC)?
 - "relevance_sol": true or false. Is the article materially about Solana (SOL)?
-- "relevance_market": true or false. Is the article about crypto markets at all?
-  false if it is not about crypto (for example general tech news).
-- "sentiment_btc": integer from -2 to 2 for the article's implication for BTC
-  (-2 very negative, 0 neutral, 2 very positive), or null if relevance_btc is false.
+- "relevance_market": true or false. true if the article is about crypto assets,
+  crypto markets or the crypto industry, including news about a single coin such
+  as Bitcoin. false only for articles not about crypto (for example general
+  technology or security news).
+- "sentiment_btc": integer from -2 to 2 for the article's implication for BTC,
+  using the scale above, or null if relevance_btc is false.
 - "sentiment_sol": integer from -2 to 2 for the article's implication for SOL,
-  or null if relevance_sol is false.
+  using the scale above, or null if relevance_sol is false.
 - "sentiment_market": integer from -2 to 2 for the article's implication for the
-  crypto market overall, or null if relevance_market is false.
+  crypto market overall, using the scale above, or null if relevance_market is false.
 - "event_type": exactly one of: regulation, security, institutional, macro,
   exchange, technology, adoption, legal, market_commentary, other.
 - "confidence": number from 0 to 1, your confidence in this label.
@@ -216,9 +227,12 @@ def request_label(session, key, title, summary):
     Returns
     -------
     tuple
-        ``(content, model_reported)``: the reply text and the ``model`` field
-        of the API response (empty string if the response omits it; the key
-        is replaced by ``[redacted]`` should the server ever echo it there).
+        ``(content, model_reported, usage)``: the reply text; the ``model``
+        field of the API response (empty string if the response omits it;
+        the key is replaced by ``[redacted]`` should the server ever echo it
+        there); and the token counts from the response's ``usage``, as a dict
+        with the keys in ``TOKEN_FIELDS`` (0 for a count that is missing or
+        not an integer).
 
     Raises
     ------
@@ -242,7 +256,18 @@ def request_label(session, key, title, summary):
         content = body["choices"][0]["message"]["content"]
     except (ValueError, KeyError, IndexError, TypeError):
         raise ModelUnavailable("response has no reply message") from None
-    return content, str(body.get("model") or "").replace(key, "[redacted]")
+    return content, str(body.get("model") or "").replace(key, "[redacted]"), token_usage(body)
+
+
+def token_usage(body):
+    """Return the token counts of an API response as a dict with the keys in ``TOKEN_FIELDS``.
+
+    A count that is missing or not an integer is 0.
+    """
+    usage = body.get("usage") if isinstance(body, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
+    return {field: usage[field] if _is_int(usage.get(field)) and usage[field] >= 0 else 0
+            for field in TOKEN_FIELDS}
 
 
 def reported_model_error(model_reported):
@@ -296,7 +321,9 @@ def label_articles(key, data_dir=DEFAULT_DATA_DIR, session=None, limit=None,
     unavailable, or the API reports a model other than
     ``EXPECTED_REPORTED_MODEL``, nothing is stored for that article, the run
     stops and the remaining articles are left for the next run. Requests are
-    spaced ``BACKOFF_S`` seconds apart.
+    spaced ``BACKOFF_S`` seconds apart. The run row records the totals of
+    ``TOKEN_FIELDS`` over every response received in the run, including
+    invalid and rejected replies.
 
     Parameters
     ----------
@@ -332,19 +359,21 @@ def label_articles(key, data_dir=DEFAULT_DATA_DIR, session=None, limit=None,
         articles = articles[:limit]
 
     run = {"run_utc": format_utc(now()), "attempted": 0, "labeled": 0, "invalid": 0,
-           "failed": 0, "error": ""}
+           "failed": 0, "error": "", **{field: 0 for field in TOKEN_FIELDS}}
     for position, article in enumerate(articles):
         if position:
             sleep(BACKOFF_S)
         run["attempted"] += 1
         try:
             summary = strip_boilerplate(article["source"], article["summary"])
-            content, model_reported = request_label(session, key, article["title"], summary)
+            content, model_reported, usage = request_label(session, key, article["title"], summary)
         except ModelUnavailable as exc:
             logger.warning("model unavailable, stopping run: %s", exc)
             run["failed"] += 1
             run["error"] = str(exc)
             break
+        for field in TOKEN_FIELDS:
+            run[field] += usage[field]
         mismatch = reported_model_error(model_reported)
         if mismatch:
             logger.warning("article %s: %s; reply not stored, stopping run", article["id"], mismatch)

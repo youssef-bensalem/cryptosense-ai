@@ -329,6 +329,78 @@ def test_prompt_version_changes_when_template_changes():
     assert prompt_version(PROMPT_TEMPLATE.replace("-2 to 2", "-3 to 3")) != PROMPT_VERSION
 
 
+def test_prompt_version_differs_from_first_qc_prompt():
+    assert PROMPT_VERSION != "3245177aefd0"
+
+
+# --- prompt definitions (revised prompt) ---
+
+PROMPT_TEXT = " ".join(PROMPT_TEMPLATE.split())
+
+
+@pytest.mark.parametrize("definition", [
+    # relevance_market
+    "true if the article is about crypto assets, crypto markets or the crypto industry, "
+    "including news about a single coin such as Bitcoin.",
+    "false only for articles not about crypto (for example general technology or security news).",
+    # sentiment: new events, not price moves
+    "Sentiment judges the implication of a NEW event for prices.",
+    "A report that the price moved, without a new underlying event, is 0.",
+    # scale anchors
+    "+2 or -2 only for major, rare events: a country-level ban or approval, a major exchange "
+    "collapse or hack, record institutional moves.",
+    "+1 or -1 for ordinary positive or negative news.",
+    "0 for neutral, mixed or purely factual news, and for price-move reports.",
+])
+def test_prompt_contains_each_definition(definition):
+    assert definition in PROMPT_TEXT
+
+
+def test_production_spacing_is_12_seconds():
+    assert module.BACKOFF_S == 12.0
+
+
+# --- token usage ---
+
+def usage_reply(content, prompt, completion, total, model=EXPECTED_REPORTED_MODEL):
+    response = reply(content, model=model)
+    response._body["usage"] = {"prompt_tokens": prompt, "completion_tokens": completion,
+                               "total_tokens": total}
+    return response
+
+
+def test_token_totals_are_recorded_per_run(tmp_path):
+    write_articles(tmp_path, [("a1", "2026-10-24T10:00:00Z"), ("a2", "2026-10-24T11:00:00Z"),
+                              ("a3", "2026-10-24T12:00:00Z")])
+    no_usage = reply(VALID)
+    result, _ = run(tmp_path, [usage_reply(VALID, 300, 50, 350), usage_reply("not json", 280, 20, 300),
+                               no_usage])
+    assert (result["prompt_tokens"], result["completion_tokens"], result["total_tokens"]) == (580, 70, 650)
+    [logged] = read_csv(tmp_path / "news" / "label_runs.csv")
+    assert list(logged) == RUN_COLUMNS
+    assert RUN_COLUMNS[-3:] == ["prompt_tokens", "completion_tokens", "total_tokens"]
+    assert (logged["prompt_tokens"], logged["completion_tokens"], logged["total_tokens"]) == (
+        "580", "70", "650")
+
+    write_articles(tmp_path, [("a4", "2026-10-24T13:00:00Z")])
+    result, _ = run(tmp_path, [usage_reply(VALID, 10, 5, 15, model="other-model")])
+    assert (result["failed"], result["total_tokens"]) == (1, 15)
+    assert read_csv(tmp_path / "news" / "label_runs.csv")[1]["total_tokens"] == "15"
+
+
+def test_token_totals_are_zero_when_nothing_is_received(tmp_path):
+    write_articles(tmp_path, ONE)
+    result, _ = run(tmp_path, [FakeResponse(429, {})])
+    assert (result["prompt_tokens"], result["completion_tokens"], result["total_tokens"]) == (0, 0, 0)
+
+
+@pytest.mark.parametrize("usage", [None, "x", {"prompt_tokens": "10", "completion_tokens": 1.5,
+                                                "total_tokens": True}, {"total_tokens": -3}])
+def test_malformed_usage_counts_as_zero(usage):
+    assert module.token_usage({"usage": usage}) == {"prompt_tokens": 0, "completion_tokens": 0,
+                                                    "total_tokens": 0}
+
+
 # --- the key ---
 
 def test_read_env_key(tmp_path):

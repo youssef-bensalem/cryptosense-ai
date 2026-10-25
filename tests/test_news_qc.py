@@ -91,6 +91,27 @@ def test_add_missing_label_columns_keeps_rows_and_hand_labels(tmp_path):
     assert path.read_bytes() == before
 
 
+def test_excluded_articles_are_never_drawn_and_draw_is_reproducible():
+    articles = make_articles({"b": 12, "a": 30, "c": 10})
+    first = draw_qc_sample(articles, per_source=5, seed=0)
+    second = draw_qc_sample(articles, per_source=5, seed=1, exclude=first["article_id"])
+    assert not set(second["article_id"]) & set(first["article_id"])
+    assert second["source"].value_counts().to_dict() == {"a": 5, "b": 5, "c": 5}
+    c_ids = set(articles.loc[articles["source"] == "c", "id"])
+    assert set(second.loc[second["source"] == "c", "article_id"]) == c_ids - set(first["article_id"])
+    assert second.equals(draw_qc_sample(articles.sample(frac=1, random_state=3), per_source=5,
+                                        seed=1, exclude=list(first["article_id"])))
+    assert list(second.columns) == QC_SAMPLE_COLUMNS
+    assert (second[MY_LABEL_COLUMNS] == "").all().all()
+
+
+def test_exclusion_that_leaves_too_few_articles_raises():
+    articles = make_articles({"a": 10, "c": 8})
+    first = draw_qc_sample(articles, per_source=5, seed=0)
+    with pytest.raises(ValueError, match="'c'"):
+        draw_qc_sample(articles, per_source=5, seed=1, exclude=first["article_id"])
+
+
 def test_market_columns_are_hand_label_columns():
     assert MY_LABEL_COLUMNS[-2:] == ["my_relevance_market", "my_sentiment_market"]
 
@@ -181,7 +202,7 @@ def test_qc_backoff_defaults_to_production_and_can_be_set(tmp_path):
                         session=FakeSession([reply(VALID)] * 4), sleep=pauses.append,
                         now=lambda: datetime.fromisoformat("2026-10-25T09:00:00+00:00"), **kwargs)
         assert pauses == [expected] * 3
-    assert BACKOFF_S == 4.0
+    assert BACKOFF_S == 12.0
 
 
 def test_qc_mismatched_reported_model_is_not_stored_and_stops(tmp_path):
@@ -301,6 +322,25 @@ def test_rows_from_other_models_or_prompts_are_not_compared():
     merged = merge_hand_and_model(HAND, labels, run=1)
     assert merged.equals(merge_hand_and_model(HAND, MODEL_LABELS, run=1))
     assert run_consistency(labels).equals(run_consistency(MODEL_LABELS))
+
+
+def test_run_consistency_reports_sentiment_direction_alongside_identity():
+    table = run_consistency(MODEL_LABELS)
+    # market: a 1/1, b 0/1, c -2/-2 -> identical 2 of 3; direction 0 vs + differs -> 2 of 3
+    assert table.loc["sentiment_market", ["direction_agree", "direction_share"]].tolist() == [2, 2 / 3]
+    # btc: a 2/2, b -1/-1, c null/null -> identical 3, direction 3
+    assert table.loc["sentiment_btc", "direction_agree"] == 3
+    assert pd.isna(table.loc["event_type", "direction_share"])
+
+    labels = pd.DataFrame([model_row(1, "x", "true", "true", "1", "", "macro"),
+                           model_row(2, "x", "true", "true", "2", "0", "macro"),
+                           model_row(1, "y", "true", "true", "-1", "0", "macro"),
+                           model_row(2, "y", "true", "true", "-2", "0", "macro")])
+    labels.loc[0, "relevance_market"] = "false"
+    table = run_consistency(labels)
+    assert table.loc["sentiment_btc", ["agree", "direction_agree"]].tolist() == [0, 2]
+    assert table.loc["sentiment_market", ["agree", "direction_agree"]].tolist() == [1, 1]
+    assert table.loc["sentiment_btc", "direction_se"] == 0
 
 
 def test_run_consistency_per_field():
