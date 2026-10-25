@@ -364,3 +364,4 @@ Then open `notebooks/01_fetch_and_validate_btc.ipynb` in VS Code, select the `.v
 
 **Collection start:** 2026-10-24T22:01:53Z (first run of python -m cryptosense.news.collect). Articles published before this time are backlog and are excluded from evaluation.
 **Sources (fixed for the whole collection period):** coindesk, cointelegraph, decrypt, theblock, bitcoinmagazine.
+**Coverage check (first 124 articles):** 1 mentioned Solana, 38 mentioned Bitcoin. A SOL-specific sentiment would be empty on most days, so the primary signal is market-wide sentiment (sentiment_market), tested against BTC and SOL; sentiment_btc is secondary (BTC only); sentiment_sol is labeled but not tested.
