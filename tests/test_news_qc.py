@@ -10,7 +10,7 @@ from cryptosense.news.label import (
 from cryptosense.news.qc import (
     MY_LABEL_COLUMNS, QC_LABEL_COLUMNS, QC_SAMPLE_COLUMNS, add_missing_label_columns, agreement,
     disagreements, draw_qc_sample, label_qc_sample, merge_hand_and_model, run_consistency,
-    write_qc_sample,
+    split_hand_labeled, write_qc_sample,
 )
 
 
@@ -218,6 +218,23 @@ def test_qc_mismatched_reported_model_is_not_stored_and_stops(tmp_path):
     assert (rows["model_reported"] == EXPECTED_REPORTED_MODEL).all()
 
 
+def test_qc_token_totals_are_returned(tmp_path):
+    def with_usage(content, prompt, completion, total, model=EXPECTED_REPORTED_MODEL):
+        return FakeResponse(200, {"model": model, "choices": [{"message": {"content": content}}],
+                                  "usage": {"prompt_tokens": prompt, "completion_tokens": completion,
+                                            "total_tokens": total}})
+
+    path = tmp_path / "qc_labels.csv"
+    result, _ = label(path, [with_usage(json.dumps(VALID), 100, 40, 140), with_usage("not json", 90, 10, 100),
+                             reply(VALID), with_usage(json.dumps(VALID), 5, 5, 10, model="other")])
+    assert (result["prompt_tokens"], result["completion_tokens"], result["total_tokens"]) == (195, 55, 250)
+    assert result["failed"] == 1
+    assert "total_tokens" not in pd.read_csv(path).columns
+
+    result, _ = label(tmp_path / "other.csv", [FakeResponse(502, {})])
+    assert (result["prompt_tokens"], result["completion_tokens"], result["total_tokens"]) == (0, 0, 0)
+
+
 def test_qc_refuses_labels_csv(tmp_path):
     with pytest.raises(ValueError):
         label(tmp_path / "labels.csv", [])
@@ -276,6 +293,18 @@ MODEL_LABELS = pd.DataFrame([
     model_row(2, "b", "true", "true", "-1", "1", "legal"),
     model_row(2, "c", "false", "true", "", "-2", "other"),
 ])
+
+
+def test_split_hand_labeled_excludes_only_rows_with_every_my_column_empty():
+    blank = {**hand_row("e", "", "", "", "", ""), "my_relevance_sol": " "}
+    partial = {**hand_row("f", "", "", "", "", ""), "my_relevance_sol": "", "my_event_type": "other"}
+    sample = pd.DataFrame([HAND.iloc[0].to_dict(), blank, HAND.iloc[1].to_dict(), partial])
+    labeled, excluded = split_hand_labeled(sample)
+    assert list(labeled["article_id"]) == ["a", "b", "f"]
+    assert list(excluded["article_id"]) == ["e"]
+
+    labeled, excluded = split_hand_labeled(HAND)
+    assert labeled.equals(HAND) and excluded.empty
 
 
 def test_merge_treats_empty_hand_sentiment_as_null_and_drops_invalid():

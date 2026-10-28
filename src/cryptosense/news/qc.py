@@ -10,7 +10,8 @@ import requests
 
 from cryptosense.news.collect import format_utc
 from cryptosense.news.label import (
-    ASSETS, BACKOFF_S, LABEL_COLUMNS, LABEL_FIELDS, MODEL, PROMPT_VERSION, ModelUnavailable,
+    ASSETS, BACKOFF_S, LABEL_COLUMNS, LABEL_FIELDS, MODEL, PROMPT_VERSION, TOKEN_FIELDS,
+    ModelUnavailable,
     _append_row, _label_row, _read_csv, parse_reply, reported_model_error, request_label,
     strip_boilerplate,
 )
@@ -143,7 +144,9 @@ def label_qc_sample(key, sample, path, runs=2, session=None, now=None, sleep=tim
     Returns
     -------
     dict
-        Counts ``attempted``, ``labeled``, ``invalid``, ``failed`` and ``error``.
+        Counts ``attempted``, ``labeled``, ``invalid``, ``failed`` and ``error``,
+        and the totals of ``TOKEN_FIELDS`` over every response received in
+        this call (including invalid and rejected replies).
 
     Raises
     ------
@@ -158,7 +161,8 @@ def label_qc_sample(key, sample, path, runs=2, session=None, now=None, sleep=tim
     done = {(row["run"], row["article_id"]) for row in _read_csv(path)
             if row["model_requested"] == MODEL and row["prompt_version"] == PROMPT_VERSION}
 
-    result = {"attempted": 0, "labeled": 0, "invalid": 0, "failed": 0, "error": ""}
+    result = {"attempted": 0, "labeled": 0, "invalid": 0, "failed": 0, "error": "",
+              **{field: 0 for field in TOKEN_FIELDS}}
     for run in range(1, runs + 1):
         for article in sample.to_dict("records"):
             if (str(run), article["article_id"]) in done:
@@ -168,11 +172,13 @@ def label_qc_sample(key, sample, path, runs=2, session=None, now=None, sleep=tim
             result["attempted"] += 1
             try:
                 summary = strip_boilerplate(article["source"], article["summary"])
-                content, model_reported, _ = request_label(session, key, article["title"], summary)
+                content, model_reported, usage = request_label(session, key, article["title"], summary)
             except ModelUnavailable as exc:
                 result["failed"] += 1
                 result["error"] = str(exc)
                 return result
+            for field in TOKEN_FIELDS:
+                result[field] += usage[field]
             mismatch = reported_model_error(model_reported)
             if mismatch:
                 result["failed"] += 1
@@ -230,6 +236,24 @@ def _chance(hand, model):
     p_model = model.value_counts(normalize=True)
     return float(sum(p_hand.get(value, 0) * p_model.get(value, 0)
                      for value in set(p_hand.index) | set(p_model.index)))
+
+
+def split_hand_labeled(sample):
+    """Split a QC sample into hand-labeled articles and articles with no hand label.
+
+    An article counts as unlabeled when every ``MY_LABEL_COLUMNS`` cell is
+    empty (or whitespace). Unlabeled articles are left out of the
+    comparison with hand labels but can still be used for run-to-run
+    consistency.
+
+    Returns
+    -------
+    tuple of pandas.DataFrame
+        ``(labeled, excluded)``, each keeping the original row order.
+    """
+    empty = sample[MY_LABEL_COLUMNS].apply(lambda column: column.astype(str).str.strip() == "")
+    unlabeled = empty.all(axis=1)
+    return sample[~unlabeled], sample[unlabeled]
 
 
 def current_model_labels(labels):
