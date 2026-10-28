@@ -22,6 +22,7 @@ from pathlib import Path
 
 import requests
 
+from cryptosense.news import in_study_period
 from cryptosense.news.collect import DEFAULT_DATA_DIR, format_utc
 
 logger = logging.getLogger(__name__)
@@ -315,7 +316,9 @@ def label_articles(key, data_dir=DEFAULT_DATA_DIR, session=None, limit=None,
                    now=None, sleep=time.sleep):
     """Label unlabeled articles, oldest publication time first.
 
-    An article is skipped if ``labels.csv`` already holds a label for it with
+    Only articles published at or after ``COLLECTION_START`` are labeled;
+    backlog articles are skipped silently and not counted in the run row.
+    Existing labels are never removed. An article is also skipped if ``labels.csv`` already holds a label for it with
     the same ``MODEL`` and ``PROMPT_VERSION``. Invalid replies are logged and
     not stored, so the article is retried on a later run. If the model is
     unavailable, or the API reports a model other than
@@ -353,7 +356,8 @@ def label_articles(key, data_dir=DEFAULT_DATA_DIR, session=None, limit=None,
 
     done = {row["article_id"] for row in _read_csv(labels_path)
             if row["model_requested"] == MODEL and row["prompt_version"] == PROMPT_VERSION}
-    articles = sorted((a for a in _read_csv(news_dir / "articles.csv") if a["id"] not in done),
+    articles = sorted((a for a in _read_csv(news_dir / "articles.csv")
+                       if a["id"] not in done and in_study_period(a["published_utc"])),
                       key=lambda a: a["published_utc"])
     if limit is not None:
         articles = articles[:limit]
@@ -403,8 +407,9 @@ def main(argv=None):
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     run = label_articles(read_env_key(), data_dir=args.data_dir, limit=args.limit)
     print(f"model {MODEL}, prompt_version {PROMPT_VERSION}")
+    width = max(len(column) for column in RUN_COLUMNS[1:])
     for column in RUN_COLUMNS[1:]:
-        print(f"{column:<10}{run[column]}")
+        print(f"{column:<{width}} {run[column]}")
 
 
 if __name__ == "__main__":
