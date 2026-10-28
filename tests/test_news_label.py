@@ -333,6 +333,12 @@ def test_prompt_version_differs_from_first_qc_prompt():
     assert PROMPT_VERSION != "3245177aefd0"
 
 
+def test_prompt_is_frozen():
+    # The prompt is frozen for the whole study (quality check accepted on 2026-10-25,
+    # notebook 19). Any change to PROMPT_TEMPLATE requires a new quality check.
+    assert PROMPT_VERSION == "affefb1b22ff"
+
+
 # --- prompt definitions (revised prompt) ---
 
 PROMPT_TEXT = " ".join(PROMPT_TEMPLATE.split())
