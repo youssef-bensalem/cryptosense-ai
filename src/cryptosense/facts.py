@@ -10,12 +10,13 @@ import math
 import pandas as pd
 
 from cryptosense.context import describe_swing
+from cryptosense.one_day import RV_OPEN_THRESHOLDS
 
 # Development-period terciles of rv_open (Phase 13 pre-registration; notebooks 15-16).
-US_OPEN_TERCILES = {
-    "BTC/USDT": (0.005763, 0.010687),
-    "SOL/USDT": (0.012285, 0.021055),
-}
+# The upper tercile is the pre-registered threshold in ``one_day.RV_OPEN_THRESHOLDS``,
+# so "high" activity here means exactly "above the setup threshold" there.
+US_OPEN_LOWER_TERCILES = {"BTC/USDT": 0.005763, "SOL/USDT": 0.012285}
+US_OPEN_TERCILES = {symbol: (low, RV_OPEN_THRESHOLDS[symbol]) for symbol, low in US_OPEN_LOWER_TERCILES.items()}
 
 # What each forecast method has shown on held-out data (Phase 14, notebook 17).
 FORECAST_TRACK_RECORD = {

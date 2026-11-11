@@ -334,3 +334,41 @@ def stop_level(price, stop_move):
     """
     stop_price = price * math.exp(-stop_move)
     return stop_price, 1 - stop_price / price
+
+
+def evidence_gap(explanation):
+    """Gap between a setup's past episodes and its base rate, with its standard error.
+
+    Parameters
+    ----------
+    explanation : dict
+        Output of ``cryptosense.setups.explain_setup``.
+
+    Returns
+    -------
+    tuple of float
+        ``(gap, se)``: ``past_mean_return`` minus ``base_same_trend_mean``,
+        and ``past_mean_se``. Both are NaN when the explanation lacks any of
+        the three (too few past episodes, or no past day in the same trend).
+    """
+    values = [explanation.get(key) for key in ("past_mean_return", "base_same_trend_mean", "past_mean_se")]
+    if any(value is None for value in values):
+        return float("nan"), float("nan")
+    return values[0] - values[1], values[2]
+
+
+def setup_evidence(explanation):
+    """The ``evidence_strength`` label for a setup explanation.
+
+    Parameters
+    ----------
+    explanation : dict
+        Output of ``cryptosense.setups.explain_setup``.
+
+    Returns
+    -------
+    str
+        One of ``EVIDENCE_LABELS``.
+    """
+    gap, se = evidence_gap(explanation)
+    return evidence_strength(gap, se, explanation["past_episodes"])

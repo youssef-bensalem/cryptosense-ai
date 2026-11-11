@@ -10,11 +10,36 @@ import operator
 import numpy as np
 import pandas as pd
 
+from cryptosense.volatility import scaled_vol_forecast
+
 SETUPS = {
     "pullback": [("dist_sma_100", ">", 0.0), ("dist_sma_20", "<", 0.0)],
     "continuation": [("mom_20", ">", 0.0), ("er_20", ">", 0.4), ("rel_volume_20", ">", 1.5)],
 }
-OPS = {">": operator.gt, "<": operator.lt}
+# Comparison operators for every rule table in the project (daily, intraday and one-day setups).
+OPS = {">": operator.gt, "<": operator.lt, "==": operator.eq}
+
+
+def conditions_hold(frame, rules):
+    """True on the rows of ``frame`` where every rule holds.
+
+    Parameters
+    ----------
+    frame : pandas.DataFrame
+        Data containing the features named by the rules.
+    rules : list of tuple
+        ``(feature, operator, value)`` with an operator from ``OPS``.
+
+    Returns
+    -------
+    pandas.Series of bool
+        Aligned with ``frame``'s index. A row with a missing value in any
+        feature used is False.
+    """
+    holds = pd.Series(True, index=frame.index)
+    for feature, op, value in rules:
+        holds &= OPS[op](frame[feature], value).fillna(False).astype(bool)
+    return holds
 
 
 def setup_flag(frame, setup):
@@ -38,11 +63,7 @@ def setup_flag(frame, setup):
         True on flagged days, aligned with ``frame``'s index.
     """
 
-    """True on days where every condition of the setup holds."""
-    flag = pd.Series(True, index=frame.index)
-    for feature, op, threshold in SETUPS[setup]:
-        flag &= OPS[op](frame[feature], threshold)
-    return flag
+    return conditions_hold(frame, SETUPS[setup])
 
 
 def explain_setup(df, date, setup, horizon=5):
@@ -74,8 +95,8 @@ def explain_setup(df, date, setup, horizon=5):
     -------
     dict
         The conditions with their values and whether each was met; the
-        current trend and volatility regimes; a volatility forecast (scaled
-        ``vol_20``) and the typical ``horizon``-day move; and statistics of
+        current trend and volatility regimes; a volatility forecast
+        (``scaled_vol_forecast``) and the typical ``horizon``-day move; and statistics of
         past episode outcomes, with their standard error and two base rates
         (all past days, and past days in the same trend regime).
 
@@ -88,7 +109,6 @@ def explain_setup(df, date, setup, horizon=5):
     fire in strong markets.
     """
 
-    """Explain a setup on one day, using only data up to and including that day."""
     history = df.loc[:date]
     today = history.iloc[-1]
 
@@ -98,10 +118,7 @@ def explain_setup(df, date, setup, horizon=5):
         for f, op, t in SETUPS[setup]
     ]
 
-    log_ret = history["log_return"]
-    realized = np.sqrt((log_ret ** 2).rolling(horizon).mean()).shift(-horizon)
-    scale = np.exp(np.log(realized / history["vol_20"]).mean())
-    vol_forecast = today["vol_20"] * scale
+    vol_forecast = scaled_vol_forecast(history, horizon).iloc[-1]
 
     flag = setup_flag(history, setup)
     starts = flag & ~flag.shift(fill_value=False)
@@ -125,4 +142,4 @@ def explain_setup(df, date, setup, horizon=5):
         "past_mean_se": round(float(past.std() / np.sqrt(len(past))), 4) if len(past) > 1 else None,
         "base_mean_return": round(float(base.mean()), 4),
         "base_same_trend_mean": round(float(same_trend.mean()), 4) if len(same_trend) else None,
-    }
+    }

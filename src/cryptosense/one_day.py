@@ -6,12 +6,11 @@ pre-registered and approved in notebooks/15_one_day_setups.ipynb before any
 outcome was computed; they are defined once here.
 """
 
-import operator
-
 import numpy as np
 import pandas as pd
 
 from cryptosense.intraday import CANDLE, NY_TZ, lag_by_time
+from cryptosense.setups import conditions_hold
 
 US_OPEN_HOURS_NY = (9, 10)
 CANDLES_IN_US_OPEN = 8
@@ -25,7 +24,6 @@ ONE_DAY_SETUPS = {
     "D1": [("trend", "==", "up"), ("rv_open", ">", RV_OPEN_THRESHOLD), ("ret_open", ">", 0.0)],
     "D2": [("rv_open", ">", RV_OPEN_THRESHOLD), ("ret_open", "<", 0.0), ("log_return", ">", 0.0)],
 }
-ONE_DAY_OPS = {">": operator.gt, "<": operator.lt, "==": operator.eq}
 
 
 def us_open_measures(m15):
@@ -115,9 +113,8 @@ def one_day_signals(daily, open_measures, symbol):
 
     out = pd.DataFrame(index=daily.index)
     for name, rules in ONE_DAY_SETUPS.items():
-        fires = frame[[feature for feature, _, _ in rules]].notna().all(axis=1)
-        for feature, op, value in rules:
-            value = threshold if value == RV_OPEN_THRESHOLD else value
-            fires &= ONE_DAY_OPS[op](frame[feature], value).fillna(False).astype(bool)
-        out[name] = fires & not_saturday
+        resolved = [(feature, op, threshold if value == RV_OPEN_THRESHOLD else value)
+                    for feature, op, value in rules]
+        complete = frame[[feature for feature, _, _ in rules]].notna().all(axis=1)
+        out[name] = complete & conditions_hold(frame, resolved) & not_saturday
     return out

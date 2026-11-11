@@ -7,9 +7,15 @@ adding claims the research does not support.
 """
 
 import os
+import re
 
-DEFAULT_MODEL = "claude-haiku-5-5"
+from cryptosense.explain import TREND_WORDS, VOLATILITY_WORDS as VOL_WORDS
+
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "llama3.2"
+DEFAULT_MODEL = OLLAMA_MODEL
 MAX_TOKENS = 600
+MAX_HISTORY_MESSAGES = 12  # the last 6 question-and-answer pairs sent to the model
 
 RULES = """You are the CryptoSense assistant. You help a non-technical user understand the current market conditions shown in the dashboard.
 
@@ -37,8 +43,6 @@ def build_fact_sheet(facts, insights):
     return "\n".join(lines)
 
 
-TREND_WORDS = {"up": "rising", "down": "falling", "range": "mixed (the signals disagree)"}
-VOL_WORDS = {"high": "more turbulent than usual for this asset", "low": "calmer than usual for this asset"}
 US_OPEN_WORDS = {"high": "unusually active", "middle": "about normal", "low": "quiet"}
 
 
@@ -85,8 +89,6 @@ def build_plain_fact_sheet(facts, insights):
     return "\n".join(lines)
 
 
-import re
-
 DIRECTIONAL_PATTERNS = [
     r"\byou should (buy|sell)\b", r"\bi (would )?recommend (buying|selling)\b",
     r"\bgood (time|moment) to (buy|sell)\b",
@@ -96,16 +98,93 @@ DIRECTIONAL_PATTERNS = [
     r"\blikely to (rise|fall|drop|increase|decrease|go up|go down|dip|climb)\b",
     r"\bpossible (dip|drop|rise|rally)\b",
 ]
-TRADE_QUESTION = re.compile(r"\b(buy|sell|enter|exit|invest|long|short|trade)\b", re.IGNORECASE)
-DIRECTION_QUESTION = re.compile(
-    r"\b(go(ing)? (up|down)|rise|rising|fall|falling|drop|pump|dump|bullish|bearish|moon|crash|"
-    r"higher|lower|up or down|direction)\b", re.IGNORECASE)
+
+# Sentence-level checks, used in addition to the exact phrases above.
+_MOVE = (r"(rise|rises|rising|climb|climbs|climbing|go up|goes up|going up|increase|increases|rally|rallies|"
+         r"rebound|rebounds|recover|recovers|surge|surges|fall|falls|falling|drop|drops|dropping|go down|"
+         r"goes down|going down|decline|declines|dip|dips|decrease|decreases|crash|crashes|plunge|plunges|"
+         r"slide|slides|sink|sinks|higher|lower|upward|upwards|downward|downwards)")
+_FUTURE = (r"(will|would|could|may|might|should|is going to|are going to|likely|expected to|probably|"
+           r"poised to|set to|about to|tends? to|looks? (set|ready) to)")
+FUTURE_MOVE = re.compile(rf"\b{_FUTURE}\b[^.!?\n]*?\b{_MOVE}\b")
+STANCE = re.compile(r"\b(bullish|bearish)\b")
+TRADE_WORD = re.compile(r"\b(buy|buying|sell|selling|go long|going long|go short|going short|"
+                        r"enter|entering|exit|exiting)\b")
+ADVICE_WORD = re.compile(r"\b(recommend|recommended|suggest|consider|advise|advisable|makes sense|"
+                         r"worth|wise|smart|good idea|best to|better to|you should|you could|you might)\b")
+# A sentence about these is about the size of moves or risk, not the direction of the price.
+NOT_ABOUT_PRICE = re.compile(r"(volatil|turbulen|swing|risk|cost|range|activity|volume|\bstops?\b|uncertain)")
+# A sentence with one of these says that direction is unknown rather than predicting it.
+HEDGE = re.compile(r"(\bwhether\b|either direction|up or down|rise or fall|\bcannot\b|\bcan't\b|\bcan not\b|"
+                   r"\bnobody\b|\bno one\b|not possible|impossible|\bno (tested |reliable )?pattern|"
+                   r"not a forecast|not a prediction|(does not|doesn't|do not|don't|did not|didn't) predict|"
+                   r"\bunknown\b|none of the)")
+
+
+def _sentences(text):
+    """Split text into sentences and list items."""
+    return [part for part in re.split(r"(?<=[.!?])\s+|\n+", text) if part.strip()]
 
 
 def violates_rules(answer):
-    """True if an answer predicts direction or recommends a trade."""
+    """True if an answer predicts direction or recommends a trade.
+
+    An answer is flagged if it contains one of ``DIRECTIONAL_PATTERNS``, or if
+    one of its sentences (a) pairs a word about the future with a price-move
+    word ("could climb", "may go up"), (b) calls the market bullish or
+    bearish, or (c) pairs an advice word with a trade word ("buying makes
+    sense"). For (a)-(c), a sentence is skipped when it says direction is
+    unknown (``HEDGE``); for (a), also when it is about the size of moves or
+    risk rather than the price (``NOT_ABOUT_PRICE``).
+    """
     text = answer.lower()
-    return any(re.search(pattern, text) for pattern in DIRECTIONAL_PATTERNS)
+    if any(re.search(pattern, text) for pattern in DIRECTIONAL_PATTERNS):
+        return True
+    for sentence in _sentences(text):
+        if HEDGE.search(sentence):
+            continue
+        if STANCE.search(sentence):
+            return True
+        if TRADE_WORD.search(sentence) and ADVICE_WORD.search(sentence):
+            return True
+        if FUTURE_MOVE.search(sentence) and not NOT_ABOUT_PRICE.search(sentence):
+            return True
+    return False
+
+
+TRADE_QUESTION = re.compile(
+    r"\b(buy|buying|sell|selling|invest|investing)\b"
+    r"|\b(go|going|went) (long|short)\b"
+    r"|\b(should|shall|can|could|do|would|must|may)\s+(i|we)\b[^.!?]*\b(enter|exit|trade|get in|get out|take profit)\b"
+    r"|\btime to (enter|exit|trade|get in|get out|take profit)\b",
+    re.IGNORECASE)
+DIRECTION_QUESTION = re.compile(
+    r"\b(bullish|bearish|pump|pumping|dump|dumping|moon|mooning|crash|crashing|up or down|higher or lower|"
+    r"(which|what|price) direction|direction of)\b", re.IGNORECASE)
+FUTURE_MOVE_QUESTION = re.compile(
+    r"\b(will|won't|going to|gonna|expect|expected|likely|about to|could|might|may|should|tomorrow|next)\b[^.!?]*?"
+    rf"\b{_MOVE}\b|\b{_MOVE}\b[^.!?]*?\b(tomorrow|next (day|week|month)|soon)\b", re.IGNORECASE)
+
+
+def is_trade_question(question):
+    """True if a question asks whether to buy, sell, invest or take a trade."""
+    return bool(question and TRADE_QUESTION.search(question))
+
+
+def is_direction_question(question):
+    """True if a question asks which way the price will move.
+
+    Either it uses a direction word such as "bullish" or "up or down", or it
+    pairs a word about the future with a price-move word ("will it rise") and
+    is not about the size of moves or risk ("could volatility rise").
+    Questions about the past ("why did the price drop yesterday") are not
+    direction questions.
+    """
+    if not question:
+        return False
+    if DIRECTION_QUESTION.search(question):
+        return True
+    return bool(FUTURE_MOVE_QUESTION.search(question)) and not NOT_ABOUT_PRICE.search(question.lower())
 
 
 def trade_decision_answer(facts, insights, opening=None):
@@ -133,10 +212,14 @@ def trade_decision_answer(facts, insights, opening=None):
 
 
 def build_request(question, facts, insights, history=None, model=DEFAULT_MODEL):
-    """Arguments for client.messages.create: system prompt, conversation and settings."""
+    """Arguments for client.messages.create: system prompt, conversation and settings.
+
+    Only the last ``MAX_HISTORY_MESSAGES`` messages of ``history`` are sent, so a
+    long chat does not overflow a small local model.
+    """
     if not question or not question.strip():
         raise ValueError("question must not be empty")
-    messages = list(history or [])
+    messages = list(history or [])[-MAX_HISTORY_MESSAGES:]
     messages.append({"role": "user", "content": question.strip()})
     return {
         "model": model,
@@ -146,34 +229,21 @@ def build_request(question, facts, insights, history=None, model=DEFAULT_MODEL):
     }
 
 
-def get_client(api_key=None):
-    """An Anthropic client, or None if no API key is configured.
-
-    The key comes from the argument or the ANTHROPIC_API_KEY environment
-    variable. It must never be written into the code or committed.
-    """
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        return None
-    import anthropic
-
-    return anthropic.Anthropic(api_key=key)
-
-
 def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
     """Ask the assistant a question; returns the answer text, or a friendly error message."""
-    if question and TRADE_QUESTION.search(question):
+    if is_trade_question(question):
         return trade_decision_answer(facts, insights)
-    if question and DIRECTION_QUESTION.search(question):
+    if is_direction_question(question):
         return trade_decision_answer(facts, insights, opening=(
             f"Nobody can reliably say whether {facts.get('asset')} will go up or down tomorrow: none of the "
             "patterns tested in this project predicted the direction reliably after costs."))
     if client is None:
-        return "The assistant is not configured: no API key was found."
+        return ("The assistant is not configured: no local model is running. "
+                "Start Ollama and reload the page; the rest of the dashboard still works.")
     request = build_request(question, facts, insights, history, model)
     try:
         response = client.messages.create(**request)
-    except Exception as error:  # network, authentication or rate-limit errors
+    except Exception as error:  # the local server is unreachable, slow or returned an error
         return f"The assistant is unavailable right now ({type(error).__name__}). The rest of the dashboard still works."
     answer = "".join(block.text for block in response.content if getattr(block, "type", "text") == "text")
     if violates_rules(answer):
@@ -183,19 +253,16 @@ def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
 
 
 # ---------------------------------------------------------------------------
-# Free, local alternative: Ollama (https://ollama.com) runs open models on
-# your own computer. No API key, no cost, and nothing leaves your machine.
+# The model: Ollama (https://ollama.com) runs open models on your own
+# computer. No API key, no cost, and nothing leaves your machine.
 # ---------------------------------------------------------------------------
-
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "llama3.2"
 
 
 class OllamaClient:
-    """Minimal stand-in for anthropic.Anthropic that talks to a local Ollama server.
+    """Client for a local Ollama server.
 
     It exposes messages.create(model, max_tokens, system, messages) and returns
-    an object shaped like the Anthropic response, so ask() works unchanged.
+    an object whose ``content`` is a list of text blocks, which is what ask() reads.
     """
 
     def __init__(self, url=OLLAMA_URL, timeout=120, session=None):
@@ -210,7 +277,7 @@ class OllamaClient:
         from types import SimpleNamespace
 
         payload = {
-            "model": OLLAMA_MODEL if model == DEFAULT_MODEL else model,
+            "model": model,
             "messages": [{"role": "system", "content": system}] + list(messages),
             "stream": False,
             "options": {"num_predict": max_tokens},
@@ -230,3 +297,65 @@ def get_local_client(url=OLLAMA_URL):
     except requests.RequestException:
         return None
     return OllamaClient(url)
+
+
+# ---------------------------------------------------------------------------
+# Hosted alternative: any chat service with an OpenAI-compatible
+# "chat completions" endpoint (many free tiers offer one, and Ollama does
+# too under /v1). The address, key and model come from environment
+# variables, so the key is never written into the code.
+# ---------------------------------------------------------------------------
+
+CHAT_URL_ENV = "ASSISTANT_API_URL"      # e.g. https://<provider>/v1/chat/completions
+CHAT_KEY_ENV = "ASSISTANT_API_KEY"
+CHAT_MODEL_ENV = "ASSISTANT_MODEL"
+
+
+class ChatAPIClient:
+    """Client for an OpenAI-compatible chat-completions endpoint.
+
+    It exposes messages.create(model, max_tokens, system, messages) like
+    ``OllamaClient``, so ask() works unchanged. The model named at
+    construction is always used; the ``model`` argument of ``create`` is
+    ignored. The API key is sent only in the request header and is never
+    included in an error message.
+    """
+
+    def __init__(self, url, api_key, model, timeout=60, session=None):
+        import requests
+
+        if not url or not api_key or not model:
+            raise ValueError("url, api_key and model are all required")
+        self.url = url
+        self.model = model
+        self.timeout = timeout
+        self._api_key = api_key
+        self.session = session or requests.Session()
+        self.messages = self
+
+    def create(self, model, max_tokens, system, messages):
+        from types import SimpleNamespace
+
+        payload = {
+            "model": self.model,
+            "messages": [{"role": "system", "content": system}] + list(messages),
+            "max_tokens": max_tokens,
+        }
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        reply = self.session.post(self.url, json=payload, headers=headers, timeout=self.timeout)
+        reply.raise_for_status()
+        text = reply.json()["choices"][0]["message"]["content"] or ""
+        return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)])
+
+
+def get_hosted_client(env=None):
+    """A ``ChatAPIClient`` configured from the environment, or None if it is not fully configured.
+
+    Reads ``ASSISTANT_API_URL``, ``ASSISTANT_API_KEY`` and ``ASSISTANT_MODEL``
+    from ``env`` (default: the process environment). All three are required.
+    """
+    env = os.environ if env is None else env
+    url, key, model = (env.get(name, "").strip() for name in (CHAT_URL_ENV, CHAT_KEY_ENV, CHAT_MODEL_ENV))
+    if not (url and key and model):
+        return None
+    return ChatAPIClient(url, key, model)

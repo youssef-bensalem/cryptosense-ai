@@ -6,9 +6,12 @@ never predict price direction, because no tested setup predicted direction
 reliably (see ROADMAP.md, Phases 5, 10 and 13).
 """
 
+import math
 from dataclasses import dataclass
 
-ROUND_TRIP_COST = 0.003  # 0.15% per side, as in Phases 6-13
+from cryptosense.backtest import COST_PER_SIDE
+
+ROUND_TRIP_COST = 2 * COST_PER_SIDE  # a buy and a sell, as in Phases 6-13
 
 # Thresholds for the share of a typical one-day swing taken by costs.
 COST_SHARE_HIGH = 0.20
@@ -29,7 +32,6 @@ def describe_swing(price, daily_vol):
     """Typical one-day swing as a fraction and as a price range around `price`."""
     if price is None or daily_vol is None or price <= 0 or daily_vol <= 0:
         raise ValueError("price and daily_vol must be positive")
-    import math
 
     return {
         "swing": daily_vol,

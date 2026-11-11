@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from cryptosense.assistant import (
-    DEFAULT_MODEL, RULES, ask, build_fact_sheet, build_plain_fact_sheet, build_request, get_client,
+    DEFAULT_MODEL, RULES, ask, build_fact_sheet, build_plain_fact_sheet, build_request,
     trade_decision_answer, violates_rules,
 )
 from cryptosense.context import derive_insights
@@ -71,11 +71,6 @@ def test_ask_handles_api_errors():
 
 def test_ask_without_client():
     assert "not configured" in ask("Range?", FACTS, [], None)
-
-
-def test_get_client_without_key(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert get_client() is None
 
 
 class FakeResponse:

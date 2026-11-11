@@ -19,8 +19,8 @@ def add_regimes(df):
         is positive; "down" when both are negative; "range" when they
         disagree (a pullback in an uptrend or a rebound in a downtrend).
     vol_regime
-        "high" when 20-day volatility is above its median over the previous
-        365 days, otherwise "low". This is relative to the past year, not an
+        "high" when 20-day volatility is above its median over the last 365
+        days (today included), otherwise "low". This is relative to the past year, not an
         absolute level of volatility.
 
     Labels are NaN while their inputs are unavailable: the first 99 rows
