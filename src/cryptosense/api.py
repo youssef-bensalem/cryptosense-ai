@@ -12,6 +12,10 @@ Settings (environment variables, all optional):
     Data folder; defaults to ``data/`` in the project root.
 ``CRYPTOSENSE_WEB_DIR``
     Built front end; defaults to ``web/dist`` in the project root.
+``CRYPTOSENSE_DATA_URL``
+    Address of the published ``market-data-processed.tar.gz``. When set, the
+    data folder is filled from it at start-up and re-checked every
+    ``CRYPTOSENSE_DATA_SYNC_MINUTES`` minutes (default 60); see ``datasync``.
 ``ASSISTANT_API_URL``, ``ASSISTANT_API_KEY``, ``ASSISTANT_MODEL``
     A hosted chat model for the assistant (see ``assistant.get_hosted_client``).
     Without them the assistant uses a local Ollama server if one is running,
@@ -19,8 +23,10 @@ Settings (environment variables, all optional):
 """
 
 import os
+import threading
 import time
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
@@ -30,6 +36,7 @@ from pydantic import BaseModel, Field
 
 from cryptosense import service
 from cryptosense.assistant import MAX_HISTORY_MESSAGES, get_hosted_client, get_local_client
+from cryptosense.datasync import DATA_URL_ENV, DataSync, sync_minutes
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MAX_QUESTION_CHARS = 500
@@ -93,7 +100,16 @@ class _ClientProvider:
         return self._local
 
 
-def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=None, daily_limiter=None):
+def create_app(
+    data_dir=None,
+    web_dir=None,
+    get_client=None,
+    now=None,
+    limiter=None,
+    daily_limiter=None,
+    data_sync=None,
+    sync_interval_s=None,
+):
     """Build the FastAPI application.
 
     Parameters
@@ -108,6 +124,12 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
         ``now() -> pandas.Timestamp`` (UTC) used for the age of the data. Tests pass a fixed clock.
     limiter, daily_limiter : RateLimiter, optional
         Limits on assistant questions per client and in total.
+    data_sync : DataSync, optional
+        Keeps the data folder up to date from the published archive. Defaults to one built
+        from ``CRYPTOSENSE_DATA_URL``, or none when that is not set. It is checked once when
+        the server starts and then every ``sync_interval_s`` seconds in the background.
+    sync_interval_s : float, optional
+        Seconds between checks. Defaults to ``CRYPTOSENSE_DATA_SYNC_MINUTES`` (60 minutes).
     """
     data_dir = Path(data_dir or os.environ.get("CRYPTOSENSE_DATA_DIR") or PROJECT_ROOT / "data")
     web_dir = Path(web_dir or os.environ.get("CRYPTOSENSE_WEB_DIR") or PROJECT_ROOT / "web" / "dist")
@@ -115,10 +137,30 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
     current_time = now or (lambda: None)
     limiter = limiter or RateLimiter(ASK_LIMIT, ASK_WINDOW_S)
     daily_limiter = daily_limiter or RateLimiter(ASK_DAILY_LIMIT, 86_400)
+    data_url = os.environ.get(DATA_URL_ENV, "").strip()
+    if data_sync is None and data_url:
+        data_sync = DataSync(data_url, data_dir)
+    interval_s = sync_minutes(os.environ) * 60 if sync_interval_s is None else sync_interval_s
+
+    @asynccontextmanager
+    async def lifespan(app):
+        """Fill the data folder before serving, then keep it fresh until the server stops."""
+        stop, worker = threading.Event(), None
+        if data_sync is not None:
+            data_sync.check_quietly()
+            worker = threading.Thread(target=data_sync.run, args=(stop, interval_s), daemon=True, name="data-sync")
+            worker.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            if worker is not None:
+                worker.join(timeout=5)
 
     app = FastAPI(
         title="CryptoSense AI",
         description=service.DISCLAIMER,
+        lifespan=lifespan,
         docs_url="/api/docs",
         openapi_url="/api/openapi.json",
         redoc_url=None,

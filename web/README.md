@@ -39,6 +39,8 @@ Keep `uvicorn cryptosense.api:app --port 8000` running in another terminal while
 | --- | --- |
 | `CRYPTOSENSE_DATA_DIR` | Data folder (default: `data/` in the project root) |
 | `CRYPTOSENSE_WEB_DIR` | Built front end (default: `web/dist`) |
+| `CRYPTOSENSE_DATA_URL` | Address of the published `market-data-processed.tar.gz`; when set, the data folder is filled from it at start-up and re-checked regularly |
+| `CRYPTOSENSE_DATA_SYNC_MINUTES` | Minutes between those checks (default 60, at least 5) |
 | `ASSISTANT_API_URL` | Chat-completions address of an OpenAI-compatible model service |
 | `ASSISTANT_API_KEY` | Its API key. Set it on the host or in `.env`; never commit it |
 | `ASSISTANT_MODEL` | The model name to request |
@@ -51,9 +53,10 @@ running, and otherwise gives only its fixed, checked answers (buy/sell and direc
 1. Build step: `pip install -r requirements.txt`, then `cd web && npm ci && npm run build`.
 2. Start command: `uvicorn cryptosense.api:app --host 0.0.0.0 --port $PORT`.
 3. Data: `data/` is not in git. The "Refresh market data" GitHub workflow
-   (`.github/workflows/refresh-data.yml`) downloads new candles every day and publishes them as
-   `market-data-processed.tar.gz` on the repository's `market-data` release. The host needs
-   those processed CSV files in its data folder (`python -m cryptosense.refresh unpack FILE`).
+   (`.github/workflows/refresh-data.yml`) downloads new candles every day and publishes them on
+   the repository's `market-data` release. On the host, set `CRYPTOSENSE_DATA_URL` to
+   `https://github.com/youssef-bensalem/cryptosense-ai/releases/download/market-data/market-data-processed.tar.gz`
+   and the app downloads the data itself when it starts and whenever it changes.
 4. Assistant: set the three `ASSISTANT_*` variables in the host's settings.
 5. The assistant endpoint is limited to 8 questions a minute per visitor and 500 a day in total
    (`ASK_LIMIT` and `ASK_DAILY_LIMIT` in `api.py`). Behind a proxy every visitor can appear to have
