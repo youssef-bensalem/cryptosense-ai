@@ -233,8 +233,7 @@ def position_size(account, risk_fraction, stop_fraction):
     ValueError
         If any input is not a positive number.
     """
-    for name, value in [("account", account), ("risk_fraction", risk_fraction),
-                        ("stop_fraction", stop_fraction)]:
+    for name, value in [("account", account), ("risk_fraction", risk_fraction), ("stop_fraction", stop_fraction)]:
         if not value > 0:
             raise ValueError(f"{name} must be positive; got {value!r}.")
     return account * risk_fraction / stop_fraction

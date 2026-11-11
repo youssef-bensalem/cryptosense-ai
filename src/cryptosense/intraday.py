@@ -126,7 +126,7 @@ def add_intraday_features(m15, daily):
 
     ret_15m = log_close - lag_by_time(log_close, CANDLE)
     for column, window in RV_WINDOWS.items():
-        out[column] = np.sqrt(window_sum(ret_15m ** 2, window))
+        out[column] = np.sqrt(window_sum(ret_15m**2, window))
 
     volume_1h = window_sum(out["volume"], "1h")
     past = pd.concat(

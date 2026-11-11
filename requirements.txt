@@ -11,4 +11,5 @@ feedparser==6.0.14
 fastapi==0.162.4
 uvicorn==0.54.0
 httpx==0.28.1
+ruff==0.17.4
 -e .

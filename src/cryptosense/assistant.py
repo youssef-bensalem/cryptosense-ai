@@ -60,15 +60,19 @@ def build_plain_fact_sheet(facts, insights):
     f = facts
     lines = ["FACTS (computed by tested code from the user's data)"]
     lines.append(f"- Asset: {f.get('asset')}. Data up to {f.get('data_date')} ({f.get('data_age_days')} day(s) old).")
-    lines.append(f"- Price: {_money(f.get('price'))}. Change over 1 day: {_pct(f.get('change_1d'))}; "
-                 f"7 days: {_pct(f.get('change_7d'))}; 30 days: {_pct(f.get('change_30d'))}.")
+    lines.append(
+        f"- Price: {_money(f.get('price'))}. Change over 1 day: {_pct(f.get('change_1d'))}; "
+        f"7 days: {_pct(f.get('change_7d'))}; 30 days: {_pct(f.get('change_30d'))}."
+    )
     lines.append(f"- 30-day low and high: {_money(f.get('low_30d'))} to {_money(f.get('high_30d'))}.")
     lines.append(f"- Trend: {TREND_WORDS.get(f.get('trend'), 'not enough history')}.")
     lines.append(f"- Turbulence: {VOL_WORDS.get(f.get('vol_regime'), 'not enough history')}.")
     if f.get("swing_1d") is not None:
-        lines.append(f"- Tomorrow's typical swing: about ±{f['swing_1d']:.1%}, roughly {_money(f.get('range_low'))} "
-                     f"to {_money(f.get('range_high'))}. This is the usual SIZE of a move in EITHER direction, "
-                     "not a forecast of direction; larger moves do happen.")
+        lines.append(
+            f"- Tomorrow's typical swing: about ±{f['swing_1d']:.1%}, roughly {_money(f.get('range_low'))} "
+            f"to {_money(f.get('range_high'))}. This is the usual SIZE of a move in EITHER direction, "
+            "not a forecast of direction; larger moves do happen."
+        )
     if f.get("forecast_track_record"):
         lines.append(f"- About that forecast: {f['forecast_track_record']}")
     if f.get("us_open_activity"):
@@ -78,8 +82,10 @@ def build_plain_fact_sheet(facts, insights):
     patterns = f.get("active_patterns") or []
     if patterns:
         for p in patterns:
-            lines.append(f"- Pattern seen today: {p.get('description')}. This describes what has ALREADY happened, "
-                         f"not what will happen next. Evidence that it matters: {p.get('evidence')}.")
+            lines.append(
+                f"- Pattern seen today: {p.get('description')}. This describes what has ALREADY happened, "
+                f"not what will happen next. Evidence that it matters: {p.get('evidence')}."
+            )
     else:
         lines.append("- No researched pattern is present today.")
     lines.append("- No tested pattern predicts whether the price will go up or down after costs.")
@@ -90,7 +96,8 @@ def build_plain_fact_sheet(facts, insights):
 
 
 DIRECTIONAL_PATTERNS = [
-    r"\byou should (buy|sell)\b", r"\bi (would )?recommend (buying|selling)\b",
+    r"\byou should (buy|sell)\b",
+    r"\bi (would )?recommend (buying|selling)\b",
     r"\bgood (time|moment) to (buy|sell)\b",
     r"\bexpect (a |an )?(possible )?(dip|drop|rise|rally|increase|decrease|fall|gain|decline)\b",
     r"\bexpect (the )?price to (rise|fall|drop|increase|decrease|go up|go down|dip)\b",
@@ -100,25 +107,35 @@ DIRECTIONAL_PATTERNS = [
 ]
 
 # Sentence-level checks, used in addition to the exact phrases above.
-_MOVE = (r"(rise|rises|rising|climb|climbs|climbing|go up|goes up|going up|increase|increases|rally|rallies|"
-         r"rebound|rebounds|recover|recovers|surge|surges|fall|falls|falling|drop|drops|dropping|go down|"
-         r"goes down|going down|decline|declines|dip|dips|decrease|decreases|crash|crashes|plunge|plunges|"
-         r"slide|slides|sink|sinks|higher|lower|upward|upwards|downward|downwards)")
-_FUTURE = (r"(will|would|could|may|might|should|is going to|are going to|likely|expected to|probably|"
-           r"poised to|set to|about to|tends? to|looks? (set|ready) to)")
+_MOVE = (
+    r"(rise|rises|rising|climb|climbs|climbing|go up|goes up|going up|increase|increases|rally|rallies|"
+    r"rebound|rebounds|recover|recovers|surge|surges|fall|falls|falling|drop|drops|dropping|go down|"
+    r"goes down|going down|decline|declines|dip|dips|decrease|decreases|crash|crashes|plunge|plunges|"
+    r"slide|slides|sink|sinks|higher|lower|upward|upwards|downward|downwards)"
+)
+_FUTURE = (
+    r"(will|would|could|may|might|should|is going to|are going to|likely|expected to|probably|"
+    r"poised to|set to|about to|tends? to|looks? (set|ready) to)"
+)
 FUTURE_MOVE = re.compile(rf"\b{_FUTURE}\b[^.!?\n]*?\b{_MOVE}\b")
 STANCE = re.compile(r"\b(bullish|bearish)\b")
-TRADE_WORD = re.compile(r"\b(buy|buying|sell|selling|go long|going long|go short|going short|"
-                        r"enter|entering|exit|exiting)\b")
-ADVICE_WORD = re.compile(r"\b(recommend|recommended|suggest|consider|advise|advisable|makes sense|"
-                         r"worth|wise|smart|good idea|best to|better to|you should|you could|you might)\b")
+TRADE_WORD = re.compile(
+    r"\b(buy|buying|sell|selling|go long|going long|go short|going short|"
+    r"enter|entering|exit|exiting)\b"
+)
+ADVICE_WORD = re.compile(
+    r"\b(recommend|recommended|suggest|consider|advise|advisable|makes sense|"
+    r"worth|wise|smart|good idea|best to|better to|you should|you could|you might)\b"
+)
 # A sentence about these is about the size of moves or risk, not the direction of the price.
 NOT_ABOUT_PRICE = re.compile(r"(volatil|turbulen|swing|risk|cost|range|activity|volume|\bstops?\b|uncertain)")
 # A sentence with one of these says that direction is unknown rather than predicting it.
-HEDGE = re.compile(r"(\bwhether\b|either direction|up or down|rise or fall|\bcannot\b|\bcan't\b|\bcan not\b|"
-                   r"\bnobody\b|\bno one\b|not possible|impossible|\bno (tested |reliable )?pattern|"
-                   r"not a forecast|not a prediction|(does not|doesn't|do not|don't|did not|didn't) predict|"
-                   r"\bunknown\b|none of the)")
+HEDGE = re.compile(
+    r"(\bwhether\b|either direction|up or down|rise or fall|\bcannot\b|\bcan't\b|\bcan not\b|"
+    r"\bnobody\b|\bno one\b|not possible|impossible|\bno (tested |reliable )?pattern|"
+    r"not a forecast|not a prediction|(does not|doesn't|do not|don't|did not|didn't) predict|"
+    r"\bunknown\b|none of the)"
+)
 
 
 def _sentences(text):
@@ -157,13 +174,18 @@ TRADE_QUESTION = re.compile(
     r"|\b(go|going|went) (long|short)\b"
     r"|\b(should|shall|can|could|do|would|must|may)\s+(i|we)\b[^.!?]*\b(enter|exit|trade|get in|get out|take profit)\b"
     r"|\btime to (enter|exit|trade|get in|get out|take profit)\b",
-    re.IGNORECASE)
+    re.IGNORECASE,
+)
 DIRECTION_QUESTION = re.compile(
     r"\b(bullish|bearish|pump|pumping|dump|dumping|moon|mooning|crash|crashing|up or down|higher or lower|"
-    r"(which|what|price) direction|direction of)\b", re.IGNORECASE)
+    r"(which|what|price) direction|direction of)\b",
+    re.IGNORECASE,
+)
 FUTURE_MOVE_QUESTION = re.compile(
     r"\b(will|won't|going to|gonna|expect|expected|likely|about to|could|might|may|should|tomorrow|next)\b[^.!?]*?"
-    rf"\b{_MOVE}\b|\b{_MOVE}\b[^.!?]*?\b(tomorrow|next (day|week|month)|soon)\b", re.IGNORECASE)
+    rf"\b{_MOVE}\b|\b{_MOVE}\b[^.!?]*?\b(tomorrow|next (day|week|month)|soon)\b",
+    re.IGNORECASE,
+)
 
 
 def is_trade_question(question):
@@ -193,19 +215,27 @@ def trade_decision_answer(facts, insights, opening=None):
     Written as Markdown: a paragraph, a bullet list, then the disclaimer as its own paragraph.
     """
     f = facts
-    opening = opening or (f"I can't tell you whether to buy or sell: none of the patterns tested in this "
-                          f"project predicted the direction of {f.get('asset')} reliably after costs.")
+    opening = opening or (
+        f"I can't tell you whether to buy or sell: none of the patterns tested in this "
+        f"project predicted the direction of {f.get('asset')} reliably after costs."
+    )
     parts = [opening + " Here is what the data says to help you decide for yourself:", ""]
     if f.get("swing_1d") is not None:
-        parts.append(f"- A typical move tomorrow is about ±{f['swing_1d']:.1%} "
-                     f"(roughly {_money(f.get('range_low'))} to {_money(f.get('range_high'))}), in either direction.")
-    parts.append(f"- Trend: {TREND_WORDS.get(f.get('trend'), 'not enough history')}; "
-                 f"turbulence: {VOL_WORDS.get(f.get('vol_regime'), 'not enough history')}.")
+        parts.append(
+            f"- A typical move tomorrow is about ±{f['swing_1d']:.1%} "
+            f"(roughly {_money(f.get('range_low'))} to {_money(f.get('range_high'))}), in either direction."
+        )
+    parts.append(
+        f"- Trend: {TREND_WORDS.get(f.get('trend'), 'not enough history')}; "
+        f"turbulence: {VOL_WORDS.get(f.get('vol_regime'), 'not enough history')}."
+    )
     for insight in insights:
         if insight.kind in ("risk", "warning") or insight.title.startswith(("Tomorrow is", "Active US market")):
             parts.append(f"- {insight.title}: {insight.text}")
-    parts.append("- If you do trade, decide in advance how much you can afford to lose, and use the risk helper "
-                 "in the dashboard to size the position and place a stop.")
+    parts.append(
+        "- If you do trade, decide in advance how much you can afford to lose, and use the risk helper "
+        "in the dashboard to size the position and place a stop."
+    )
     parts.append("")
     parts.append("This is information, not financial advice.")
     return "\n".join(parts)
@@ -234,21 +264,32 @@ def ask(question, facts, insights, client, history=None, model=DEFAULT_MODEL):
     if is_trade_question(question):
         return trade_decision_answer(facts, insights)
     if is_direction_question(question):
-        return trade_decision_answer(facts, insights, opening=(
-            f"Nobody can reliably say whether {facts.get('asset')} will go up or down tomorrow: none of the "
-            "patterns tested in this project predicted the direction reliably after costs."))
+        return trade_decision_answer(
+            facts,
+            insights,
+            opening=(
+                f"Nobody can reliably say whether {facts.get('asset')} will go up or down tomorrow: none of the "
+                "patterns tested in this project predicted the direction reliably after costs."
+            ),
+        )
     if client is None:
-        return ("The assistant is not configured: no local model is running. "
-                "Start Ollama and reload the page; the rest of the dashboard still works.")
+        return (
+            "The assistant is not configured: no local model is running. "
+            "Start Ollama and reload the page; the rest of the dashboard still works."
+        )
     request = build_request(question, facts, insights, history, model)
     try:
         response = client.messages.create(**request)
     except Exception as error:  # the local server is unreachable, slow or returned an error
-        return f"The assistant is unavailable right now ({type(error).__name__}). The rest of the dashboard still works."
+        return (
+            f"The assistant is unavailable right now ({type(error).__name__}). The rest of the dashboard still works."
+        )
     answer = "".join(block.text for block in response.content if getattr(block, "type", "text") == "text")
     if violates_rules(answer):
-        return ("*The assistant's answer was withheld because it suggested a price direction, which this "
-                "project's research does not support.*\n\n" + trade_decision_answer(facts, insights))
+        return (
+            "*The assistant's answer was withheld because it suggested a price direction, which this "
+            "project's research does not support.*\n\n" + trade_decision_answer(facts, insights)
+        )
     return answer
 
 
@@ -306,7 +347,7 @@ def get_local_client(url=OLLAMA_URL):
 # variables, so the key is never written into the code.
 # ---------------------------------------------------------------------------
 
-CHAT_URL_ENV = "ASSISTANT_API_URL"      # e.g. https://<provider>/v1/chat/completions
+CHAT_URL_ENV = "ASSISTANT_API_URL"  # e.g. https://<provider>/v1/chat/completions
 CHAT_KEY_ENV = "ASSISTANT_API_KEY"
 CHAT_MODEL_ENV = "ASSISTANT_MODEL"
 

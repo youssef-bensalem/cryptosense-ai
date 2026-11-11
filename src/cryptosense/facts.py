@@ -21,9 +21,9 @@ US_OPEN_TERCILES = {symbol: (low, RV_OPEN_THRESHOLDS[symbol]) for symbol, low in
 # What each forecast method has shown on held-out data (Phase 14, notebook 17).
 FORECAST_TRACK_RECORD = {
     "BTC/USDT": "HAR forecast: on 2024+ held-out data it was 21% more accurate than the previous forecast "
-                "for total price swings (including moves within the day), but not better for where the price closes.",
+    "for total price swings (including moves within the day), but not better for where the price closes.",
     "SOL/USDT": "HAR forecast: on 2024+ held-out data it was 11% more accurate than the previous forecast "
-                "for total price swings (including moves within the day), but not better for where the price closes.",
+    "for total price swings (including moves within the day), but not better for where the price closes.",
 }
 FALLBACK_TRACK_RECORD = "20-day volatility forecast (scaled); no intraday data is used for this asset."
 
@@ -109,7 +109,8 @@ def build_facts(daily, symbol, swing_1d, swing_method, now=None, rv_open=None, p
         "swing_1d": swing,
         "swing_method": swing_method,
         "forecast_track_record": FORECAST_TRACK_RECORD.get(symbol, FALLBACK_TRACK_RECORD)
-        if swing_method and swing_method.startswith("HAR") else FALLBACK_TRACK_RECORD,
+        if swing_method and swing_method.startswith("HAR")
+        else FALLBACK_TRACK_RECORD,
         "us_open_activity": classify_us_open(symbol, rv_open),
         "next_weekday": (last_date + pd.Timedelta(days=1)).day_name(),
         "active_patterns": list(patterns or []),

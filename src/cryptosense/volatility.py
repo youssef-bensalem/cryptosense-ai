@@ -26,7 +26,7 @@ def rms_ahead(values, horizon):
     pandas.Series
         Aligned with ``values``.
     """
-    return np.sqrt((values ** 2).rolling(horizon).mean()).shift(-horizon)
+    return np.sqrt((values**2).rolling(horizon).mean()).shift(-horizon)
 
 
 def scaled_vol_forecast(df, horizon=5):
@@ -53,6 +53,7 @@ def scaled_vol_forecast(df, horizon=5):
     log_ratio = np.log(realized / df["vol_20"])
     scale = np.exp(log_ratio.expanding().mean().shift(horizon))
     return (df["vol_20"] * scale).rename("vol_forecast")
+
 
 CANDLES_PER_DAY = 96  # 15-minute candles in a UTC day
 
@@ -86,7 +87,7 @@ def daily_realized_vol(m15, max_missing=4):
     r = np.log(m15["close"] / m15["open"])
     day = m15.index.normalize()
     present = r.notna().groupby(day).sum()
-    rv = np.sqrt((r ** 2).groupby(day).sum())
+    rv = np.sqrt((r**2).groupby(day).sum())
     rv = rv.where(CANDLES_PER_DAY - present <= max_missing)
     rv.index.name = "date"
     return rv.rename("rv_daily")
@@ -190,7 +191,7 @@ def har_forecast(daily_rv, horizon=5, refit_every=30, min_train=365):
     has_features = np.isfinite(features).all(axis=1)
     usable = has_features & np.isfinite(target)
     # known_count[s]: usable rows i with i + horizon <= s.
-    known_count = np.concatenate([np.zeros(horizon, dtype=int), np.cumsum(usable)])[:len(days)]
+    known_count = np.concatenate([np.zeros(horizon, dtype=int), np.cumsum(usable)])[: len(days)]
 
     forecast = np.full(len(days), np.nan)
     coef, last_fit = None, None
@@ -198,7 +199,7 @@ def har_forecast(daily_rv, horizon=5, refit_every=30, min_train=365):
         due = coef is None or s - last_fit >= refit_every
         if due and known_count[s] >= min_train:
             rows = usable.copy()
-            rows[max(s - horizon + 1, 0):] = False
+            rows[max(s - horizon + 1, 0) :] = False
             coef, last_fit = _fit_ols(features[rows], target[rows]), s
         if coef is not None and has_features[s]:
             forecast[s] = np.exp(coef[0] + features[s] @ coef[1:])

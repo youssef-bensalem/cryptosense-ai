@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-def add_features(df):
 
+def add_features(df):
     """Add the Phase 2 feature columns to a daily OHLCV DataFrame.
 
     Every feature for a given day uses only that day's data and earlier
@@ -47,21 +47,19 @@ def add_features(df):
 
     out = df.copy()
 
-    out["log_return"]=np.log(out["close"] / out["close"].shift(1))
+    out["log_return"] = np.log(out["close"] / out["close"].shift(1))
 
-    out["mom_5"]=np.log(out["close"]/out["close"].shift(5))
-    out["mom_20"]=np.log(out["close"]/out["close"].shift(20))
+    out["mom_5"] = np.log(out["close"] / out["close"].shift(5))
+    out["mom_20"] = np.log(out["close"] / out["close"].shift(20))
 
-    out["dist_sma_20"] = out["close"] / out["close"].rolling(20).mean()-1
-    out["dist_sma_100"]=out["close"] / out["close"].rolling(100).mean()-1
+    out["dist_sma_20"] = out["close"] / out["close"].rolling(20).mean() - 1
+    out["dist_sma_100"] = out["close"] / out["close"].rolling(100).mean() - 1
 
-    out["vol_20"]=out["log_return"].rolling(20).std()
-    out["vol_60"]=out["log_return"].rolling(60).std()
+    out["vol_20"] = out["log_return"].rolling(20).std()
+    out["vol_60"] = out["log_return"].rolling(60).std()
 
-    out["rel_volume_20"]=out["volume"]/out["volume"].shift(1).rolling(20).mean()
+    out["rel_volume_20"] = out["volume"] / out["volume"].shift(1).rolling(20).mean()
 
-    out["er_20"]=out["mom_20"].abs()/out["log_return"].abs().rolling(20).sum()
+    out["er_20"] = out["mom_20"].abs() / out["log_return"].abs().rolling(20).sum()
 
     return out
-
-

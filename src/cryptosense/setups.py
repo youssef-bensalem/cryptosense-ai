@@ -43,7 +43,6 @@ def conditions_hold(frame, rules):
 
 
 def setup_flag(frame, setup):
-
     """Flag the days on which every condition of a setup holds.
 
     Rules come from ``SETUPS``: each condition is a (feature, operator,
@@ -67,7 +66,6 @@ def setup_flag(frame, setup):
 
 
 def explain_setup(df, date, setup, horizon=5):
-
     """Explain a setup on one day, using only data up to and including that day.
 
     Point-in-time guarantee: everything is computed from ``df.loc[:date]``,
@@ -113,8 +111,7 @@ def explain_setup(df, date, setup, horizon=5):
     today = history.iloc[-1]
 
     conditions = [
-        {"feature": f, "rule": f"{op} {t}", "value": round(float(today[f]), 4),
-         "met": bool(OPS[op](today[f], t))}
+        {"feature": f, "rule": f"{op} {t}", "value": round(float(today[f]), 4), "met": bool(OPS[op](today[f], t))}
         for f, op, t in SETUPS[setup]
     ]
 
@@ -142,4 +139,4 @@ def explain_setup(df, date, setup, horizon=5):
         "past_mean_se": round(float(past.std() / np.sqrt(len(past))), 4) if len(past) > 1 else None,
         "base_mean_return": round(float(base.mean()), 4),
         "base_same_trend_mean": round(float(same_trend.mean()), 4) if len(same_trend) else None,
-    }
+    }

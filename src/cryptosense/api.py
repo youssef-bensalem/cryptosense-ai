@@ -17,6 +17,7 @@ Settings (environment variables, all optional):
     Without them the assistant uses a local Ollama server if one is running,
     and otherwise gives only its fixed, checked answers.
 """
+
 import os
 import time
 from collections import defaultdict, deque
@@ -33,9 +34,9 @@ from cryptosense.assistant import MAX_HISTORY_MESSAGES, get_hosted_client, get_l
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MAX_QUESTION_CHARS = 500
 MAX_MESSAGE_CHARS = 4000
-ASK_LIMIT = 8            # questions per client ...
-ASK_WINDOW_S = 60        # ... per this many seconds
-ASK_DAILY_LIMIT = 500    # questions per day across all clients, to protect a free model tier
+ASK_LIMIT = 8  # questions per client ...
+ASK_WINDOW_S = 60  # ... per this many seconds
+ASK_DAILY_LIMIT = 500  # questions per day across all clients, to protect a free model tier
 LOCAL_CLIENT_TTL_S = 60
 
 RangeName = Literal["1m", "3m", "1y", "all"]
@@ -115,8 +116,13 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
     limiter = limiter or RateLimiter(ASK_LIMIT, ASK_WINDOW_S)
     daily_limiter = daily_limiter or RateLimiter(ASK_DAILY_LIMIT, 86_400)
 
-    app = FastAPI(title="CryptoSense AI", description=service.DISCLAIMER, docs_url="/api/docs",
-                  openapi_url="/api/openapi.json", redoc_url=None)
+    app = FastAPI(
+        title="CryptoSense AI",
+        description=service.DISCLAIMER,
+        docs_url="/api/docs",
+        openapi_url="/api/openapi.json",
+        redoc_url=None,
+    )
 
     @app.exception_handler(service.UnknownAsset)
     async def unknown_asset(request, error):
@@ -145,9 +151,14 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
 
     @app.get("/api/meta")
     def meta():
-        return {"disclaimer": service.DISCLAIMER, "ranges": list(service.CHART_RANGES),
-                "default_range": service.DEFAULT_RANGE, "held_out_start": service.HELD_OUT_START,
-                "max_question_chars": MAX_QUESTION_CHARS, "assistant_model_available": get_client() is not None}
+        return {
+            "disclaimer": service.DISCLAIMER,
+            "ranges": list(service.CHART_RANGES),
+            "default_range": service.DEFAULT_RANGE,
+            "held_out_start": service.HELD_OUT_START,
+            "max_question_chars": MAX_QUESTION_CHARS,
+            "assistant_model_available": get_client() is not None,
+        }
 
     @app.get("/api/assets")
     def assets():
@@ -182,8 +193,12 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
         return service.strategies(data_dir, symbol_of(slug), period, range)
 
     @app.get("/api/risk")
-    def risk(price: float = Query(gt=0), typical_move: float = Query(gt=0), account: float = Query(gt=0),
-             risk_pct: float = Query(gt=0, le=100)):
+    def risk(
+        price: float = Query(gt=0),
+        typical_move: float = Query(gt=0),
+        account: float = Query(gt=0),
+        risk_pct: float = Query(gt=0, le=100),
+    ):
         try:
             return service.risk(price, typical_move, account, risk_pct)
         except ValueError as error:
@@ -210,8 +225,9 @@ def create_app(data_dir=None, web_dir=None, get_client=None, now=None, limiter=N
     def front_end(path: str):
         """Serve the built front end; unknown paths get index.html so in-app links work."""
         if not index.exists():
-            return JSONResponse({"detail": "The front end has not been built yet. The API is under /api."},
-                                status_code=404)
+            return JSONResponse(
+                {"detail": "The front end has not been built yet. The API is under /api."}, status_code=404
+            )
         target = (web_dir / path).resolve()
         if path and target.is_file() and web_dir.resolve() in target.parents:
             return FileResponse(target)

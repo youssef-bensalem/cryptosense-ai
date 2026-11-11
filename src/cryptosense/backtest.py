@@ -107,14 +107,16 @@ def run_backtest(df, signal, hold_days, cost_per_side=COST_PER_SIDE):
 
     for entry, exit_ in find_trades(signal, hold_days):
         p_in, p_out = opens.iloc[entry], opens.iloc[exit_]
-        rows.append({
-            "entry_date": df.index[entry],
-            "exit_date": df.index[exit_],
-            "entry_price": p_in,
-            "exit_price": p_out,
-            "gross_return": p_out / p_in - 1,
-            "net_return": (p_out * (1 - cost_per_side)) / (p_in * (1 + cost_per_side)) - 1,
-        })
+        rows.append(
+            {
+                "entry_date": df.index[entry],
+                "exit_date": df.index[exit_],
+                "entry_price": p_in,
+                "exit_price": p_out,
+                "gross_return": p_out / p_in - 1,
+                "net_return": (p_out * (1 - cost_per_side)) / (p_in * (1 + cost_per_side)) - 1,
+            }
+        )
 
         # Day-by-day price growth while holding, then costs at entry and exit.
         held = slice(entry + 1, exit_ + 1)
@@ -156,4 +158,4 @@ def summarize_backtest(trades, equity, days_per_year=365):
         "time_in_market": held_days / total_days if total_days else 0.0,
         "win_rate": float((trades["net_return"] > 0).mean()) if len(trades) else None,
         "avg_trade": float(trades["net_return"].mean()) if len(trades) else None,
-    }
+    }
