@@ -50,8 +50,10 @@ running, and otherwise gives only its fixed, checked answers (buy/sell and direc
 
 1. Build step: `pip install -r requirements.txt`, then `cd web && npm ci && npm run build`.
 2. Start command: `uvicorn cryptosense.api:app --host 0.0.0.0 --port $PORT`.
-3. Data: `data/` is not in git. The host needs the processed CSV files
-   (`data/processed/*_1d.csv` and `*_15m.csv`), kept up to date by a scheduled refresh.
+3. Data: `data/` is not in git. The "Refresh market data" GitHub workflow
+   (`.github/workflows/refresh-data.yml`) downloads new candles every day and publishes them as
+   `market-data-processed.tar.gz` on the repository's `market-data` release. The host needs
+   those processed CSV files in its data folder (`python -m cryptosense.refresh unpack FILE`).
 4. Assistant: set the three `ASSISTANT_*` variables in the host's settings.
 5. The assistant endpoint is limited to 8 questions a minute per visitor and 500 a day in total
    (`ASK_LIMIT` and `ASK_DAILY_LIMIT` in `api.py`). Behind a proxy every visitor can appear to have

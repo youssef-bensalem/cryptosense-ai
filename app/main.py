@@ -5,11 +5,10 @@ from pathlib import Path
 
 import pandas as pd
 import numpy as np
-import ccxt
 import plotly.express as px
 import streamlit as st
 
-from cryptosense.data import load_processed, symbol_to_slug, update_symbol
+from cryptosense.data import load_processed, symbol_to_slug
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
@@ -39,6 +38,7 @@ from cryptosense.facts import build_facts
 from cryptosense.one_day import us_open_measures
 from cryptosense.assistant import ask, get_local_client
 from cryptosense import service
+from cryptosense.refresh import make_exchange, update_all
 from cryptosense.service import REPLICATION_NOTES, WATCHLIST
 from cryptosense.news.coverage import format_status, load_collector_status
 
@@ -152,15 +152,13 @@ symbol = st.sidebar.selectbox("Asset", WATCHLIST)
 if st.sidebar.button("Refresh data from Binance"):
     try:
         with st.sidebar.status("Fetching and validating data..."):
-            exchange = ccxt.binance()
-            now_ms = exchange.milliseconds()
-            results = [{**update_symbol(exchange, s, DATA_DIR, now_ms), "unit": "days"} for s in WATCHLIST]
-            for s in HAR_SYMBOLS:
-                if not (DATA_DIR / "raw" / f"{symbol_to_slug(s)}_15m_raw.csv").exists():
-                    st.write(f"Downloading 15-minute data for {s} for the first time; this takes a few minutes.")
-                results.append(
-                    {**update_symbol(exchange, s, DATA_DIR, now_ms, timeframe="15m"), "unit": "15-minute candles"}
-                )
+            exchange = make_exchange()
+
+            def announce(asset, timeframe, first_time):
+                if first_time and timeframe == "15m":
+                    st.write(f"Downloading 15-minute data for {asset} for the first time; this takes a few minutes.")
+
+            results = update_all(exchange, DATA_DIR, exchange.milliseconds(), announce)
     except Exception as error:
         st.sidebar.error(f"Refresh failed: {error}. Any symbols updated before the error were kept.")
     else:
