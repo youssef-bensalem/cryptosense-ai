@@ -5,6 +5,30 @@ import numpy as np
 import pandas as pd
 
 
+def rms_ahead(values, horizon):
+    """Root mean square of ``values`` over the next ``horizon`` rows (t+1 .. t+horizon).
+
+    With daily log returns this is the realized daily volatility over the
+    next ``horizon`` days; with daily realized volatility it is the outcome
+    HAR forecasts. It uses future rows by design: it is an outcome, never a
+    feature. The last ``horizon`` rows are NaN, as is any row whose window
+    holds a missing value.
+
+    Parameters
+    ----------
+    values : pandas.Series
+        One value per consecutive period.
+    horizon : int
+        Number of rows ahead.
+
+    Returns
+    -------
+    pandas.Series
+        Aligned with ``values``.
+    """
+    return np.sqrt((values**2).rolling(horizon).mean()).shift(-horizon)
+
+
 def scaled_vol_forecast(df, horizon=5):
     """Forecast daily volatility over the next ``horizon`` days for every day.
 
@@ -25,10 +49,11 @@ def scaled_vol_forecast(df, horizon=5):
     pandas.Series
         Forecast daily volatility; NaN until enough completed outcomes exist.
     """
-    realized = np.sqrt((df["log_return"] ** 2).rolling(horizon).mean()).shift(-horizon)
+    realized = rms_ahead(df["log_return"], horizon)
     log_ratio = np.log(realized / df["vol_20"])
     scale = np.exp(log_ratio.expanding().mean().shift(horizon))
     return (df["vol_20"] * scale).rename("vol_forecast")
+
 
 CANDLES_PER_DAY = 96  # 15-minute candles in a UTC day
 
@@ -62,7 +87,7 @@ def daily_realized_vol(m15, max_missing=4):
     r = np.log(m15["close"] / m15["open"])
     day = m15.index.normalize()
     present = r.notna().groupby(day).sum()
-    rv = np.sqrt((r ** 2).groupby(day).sum())
+    rv = np.sqrt((r**2).groupby(day).sum())
     rv = rv.where(CANDLES_PER_DAY - present <= max_missing)
     rv.index.name = "date"
     return rv.rename("rv_daily")
@@ -92,7 +117,7 @@ def _har_design(daily_rv, horizon):
     rv = daily_rv.astype(float).reindex(days)
     with np.errstate(divide="ignore"):
         features = np.column_stack([np.log(rv), np.log(rv.rolling(5).mean()), np.log(rv.rolling(22).mean())])
-        target = np.log(np.sqrt((rv ** 2).rolling(horizon).mean()).shift(-horizon)).to_numpy()
+        target = np.log(rms_ahead(rv, horizon)).to_numpy()
     return days, features, target
 
 
@@ -166,7 +191,7 @@ def har_forecast(daily_rv, horizon=5, refit_every=30, min_train=365):
     has_features = np.isfinite(features).all(axis=1)
     usable = has_features & np.isfinite(target)
     # known_count[s]: usable rows i with i + horizon <= s.
-    known_count = np.concatenate([np.zeros(horizon, dtype=int), np.cumsum(usable)])[:len(days)]
+    known_count = np.concatenate([np.zeros(horizon, dtype=int), np.cumsum(usable)])[: len(days)]
 
     forecast = np.full(len(days), np.nan)
     coef, last_fit = None, None
@@ -174,7 +199,7 @@ def har_forecast(daily_rv, horizon=5, refit_every=30, min_train=365):
         due = coef is None or s - last_fit >= refit_every
         if due and known_count[s] >= min_train:
             rows = usable.copy()
-            rows[max(s - horizon + 1, 0):] = False
+            rows[max(s - horizon + 1, 0) :] = False
             coef, last_fit = _fit_ols(features[rows], target[rows]), s
         if coef is not None and has_features[s]:
             forecast[s] = np.exp(coef[0] + features[s] @ coef[1:])
@@ -206,8 +231,7 @@ def realized_vol_ahead(daily_rv, horizon=5):
         Aligned with ``daily_rv``'s index, named ``realized_vol_ahead``; NaN
         where any of the next ``horizon`` days is missing or not yet known.
     """
-    _, _, target = _har_design(daily_rv, horizon)
-    days = pd.date_range(daily_rv.index[0], daily_rv.index[-1], freq="D").as_unit(daily_rv.index.unit)
+    days, _, target = _har_design(daily_rv, horizon)
     return pd.Series(np.exp(target), index=days, name="realized_vol_ahead").reindex(daily_rv.index)
 
 

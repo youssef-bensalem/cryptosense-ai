@@ -9,3 +9,9 @@ requires-python = ">=3.12"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+# Formatter settings (run: ruff format). The frozen news pipeline, the tests and
+# the notebooks are left as they are.
+line-length = 120
+extend-exclude = ["src/cryptosense/news", "tests", "notebooks"]

@@ -1,5 +1,6 @@
 import pandas as pd
 from pathlib import Path
+
 DAY_MS = 86_400_000
 
 TIMEFRAME_UNIT_MS = {
@@ -11,7 +12,6 @@ TIMEFRAME_UNIT_MS = {
 
 
 def timeframe_to_ms(timeframe):
-
     """Convert a timeframe string such as ``"15m"`` or ``"1d"`` into milliseconds.
 
     A pure replacement for ``exchange.parse_timeframe()`` that needs no
@@ -45,13 +45,7 @@ def timeframe_to_ms(timeframe):
     return int(amount) * TIMEFRAME_UNIT_MS[unit]
 
 
-def fetch_ohlcv_history(exchange,
-                         symbol, 
-                         timeframe="1d", 
-                         start="2017-01-01T00:00:00Z",
-                         limit=1000,
-                         since_ms=None):
-    
+def fetch_ohlcv_history(exchange, symbol, timeframe="1d", start="2017-01-01T00:00:00Z", limit=1000, since_ms=None):
     """Fetch the full candle history for a symbol, paginating as needed.
 
     Parameters
@@ -78,9 +72,9 @@ def fetch_ohlcv_history(exchange,
         Candles as ``[timestamp_ms, open, high, low, close, volume]``, oldest
         first. Includes the current, still-forming candle.
     """
-        
+
     all_candles = []
-    since=exchange.parse8601(start) if since_ms is None else since_ms
+    since = exchange.parse8601(start) if since_ms is None else since_ms
     while True:
         batch = exchange.fetch_ohlcv(symbol, timeframe=timeframe, since=since, limit=limit)
         if len(batch) == 0:
@@ -92,8 +86,8 @@ def fetch_ohlcv_history(exchange,
 
     return all_candles
 
-def candles_to_dataframe(candles):
 
+def candles_to_dataframe(candles):
     """Convert a list of OHLCV candles into a DataFrame indexed by UTC date.
 
     Parameters
@@ -117,17 +111,16 @@ def candles_to_dataframe(candles):
 
     if len(candles) == 0:
         raise ValueError("No candles to convert: the candle list is empty.")
-    
-    columns=["timestamp", "open", "high", "low", "close", "volume"]
-    df=pd.DataFrame(candles, columns=columns)
 
-    df["date"]=pd.to_datetime(df["timestamp"], unit="ms", utc=True)
-    df=df.set_index("date")
+    columns = ["timestamp", "open", "high", "low", "close", "volume"]
+    df = pd.DataFrame(candles, columns=columns)
+
+    df["date"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
+    df = df.set_index("date")
     return df
 
 
 def validate_ohlcv(df, timeframe="1d"):
-
     """Run data-quality checks on an OHLCV DataFrame and report the results.
 
     Gaps are measured against the candle duration of ``timeframe``.
@@ -171,7 +164,7 @@ def validate_ohlcv(df, timeframe="1d"):
     # 5. Invalid values
     non_positive_prices = int((df[price_cols] <= 0).sum().sum())
     negative_volume = int((df["volume"] < 0).sum())
-    zero_volume_days= int((df["volume"] == 0).sum())
+    zero_volume_days = int((df["volume"] == 0).sum())
 
     # 6. Candle consistency
     bad_high = df["high"] < df[["open", "close"]].max(axis=1)
@@ -193,9 +186,7 @@ def validate_ohlcv(df, timeframe="1d"):
     }
 
 
-
 def drop_incomplete_candles(df, now_ms, timeframe="1d"):
-
     """Remove candles whose period has not finished yet.
 
     A candle is complete once its full period (``timestamp`` plus the
@@ -217,16 +208,16 @@ def drop_incomplete_candles(df, now_ms, timeframe="1d"):
     pandas.DataFrame
         A new DataFrame containing only complete candles.
     """
-        
+
     is_complete = df["timestamp"] + timeframe_to_ms(timeframe) <= now_ms
 
     return df[is_complete]
 
 
-#funtions used to extend to sol and eth
+# funtions used to extend to sol and eth
+
 
 def symbol_to_slug(symbol):
-
     """Convert a market symbol into a lowercase, file-name-safe slug.
 
     Example: ``"BTC/USDT"`` becomes ``"btc_usdt"``.
@@ -246,13 +237,12 @@ def symbol_to_slug(symbol):
         The slug.
     """
 
-    new=symbol.replace("/", "_")
-    new=new.lower()
+    new = symbol.replace("/", "_")
+    new = new.lower()
     return new
 
 
 def save_dataset(raw_candles, df, symbol, data_dir, timeframe="1d"):
-
     """Save raw and processed data for one symbol as CSV files.
 
     Writes ``<data_dir>/raw/<slug>_<timeframe>_raw.csv`` (candles exactly as
@@ -284,10 +274,10 @@ def save_dataset(raw_candles, df, symbol, data_dir, timeframe="1d"):
     raw_dir.mkdir(parents=True, exist_ok=True)
     processed_dir.mkdir(parents=True, exist_ok=True)
 
-    slug=symbol_to_slug(symbol)
+    slug = symbol_to_slug(symbol)
 
-    raw_path=raw_dir / f"{slug}_{timeframe}_raw.csv"
-    processed_path=processed_dir / f"{slug}_{timeframe}.csv"
+    raw_path = raw_dir / f"{slug}_{timeframe}_raw.csv"
+    processed_path = processed_dir / f"{slug}_{timeframe}.csv"
 
     raw_df = pd.DataFrame(raw_candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
     raw_df.to_csv(raw_path, index=False)
@@ -298,7 +288,6 @@ def save_dataset(raw_candles, df, symbol, data_dir, timeframe="1d"):
 
 
 def load_processed(symbol, data_dir, timeframe="1d"):
-
     """Load one symbol's processed CSV with the exact types it was saved with.
 
     The ``date`` index is rebuilt from the integer ``timestamp`` column rather
@@ -320,8 +309,8 @@ def load_processed(symbol, data_dir, timeframe="1d"):
         Processed data indexed by UTC date.
     """
 
-    slug=symbol_to_slug(symbol)
-    processed_path=data_dir / "processed" / f"{slug}_{timeframe}.csv"
+    slug = symbol_to_slug(symbol)
+    processed_path = data_dir / "processed" / f"{slug}_{timeframe}.csv"
 
     reloaded = pd.read_csv(processed_path)
     reloaded["date"] = pd.to_datetime(reloaded["timestamp"], unit="ms", utc=True)

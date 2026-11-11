@@ -2,4 +2,9 @@
 data/
 .ipynb_checkpoints/
 __pycache__/
-*.egg-info/.vscode/
+*.egg-info/
+.vscode/
+.env
+.pytest_cache/
+web/node_modules/
+web/dist/

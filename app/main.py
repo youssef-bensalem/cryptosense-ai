@@ -1,46 +1,56 @@
 """CryptoSense AI dashboard. Run from the project root with: streamlit run app/main.py"""
 
+import os
 from pathlib import Path
 
 import pandas as pd
 import numpy as np
-import ccxt
 import plotly.express as px
 import streamlit as st
 
-from cryptosense.data import load_processed, symbol_to_slug, update_symbol
+from cryptosense.data import load_processed, symbol_to_slug
 from cryptosense.features import add_features
 from cryptosense.regimes import add_regimes
 from cryptosense.setups import SETUPS, explain_setup, setup_flag
 from cryptosense.volatility import (
-    HAR_LABEL, HAR_SYMBOLS, daily_realized_vol, dashboard_forecast, realized_vol_ahead,
+    HAR_LABEL,
+    HAR_SYMBOLS,
+    daily_realized_vol,
+    dashboard_forecast,
+    realized_vol_ahead,
+    rms_ahead,
 )
-from cryptosense.backtest import run_backtest, summarize_backtest
+from cryptosense.backtest import COST_PER_SIDE
 from cryptosense.explain import (
-    describe_setup, describe_trend, describe_volatility, evidence_meaning, evidence_strength,
-    position_size, stop_level, suggested_stop, typical_move_range,
+    describe_setup,
+    describe_trend,
+    describe_volatility,
+    evidence_gap,
+    evidence_meaning,
+    position_size,
+    setup_evidence,
+    stop_level,
+    suggested_stop,
+    typical_move_range,
 )
 from cryptosense.context import derive_insights
 from cryptosense.facts import build_facts
 from cryptosense.one_day import us_open_measures
 from cryptosense.assistant import ask, get_local_client
+from cryptosense import service
+from cryptosense.refresh import make_exchange, update_all
+from cryptosense.service import REPLICATION_NOTES, WATCHLIST
+from cryptosense.news.coverage import format_status, load_collector_status
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-WATCHLIST = ["SOL/USDT", "BTC/USDT", "ETH/USDT"]
-CHART_RANGES = {"1 month": pd.DateOffset(months=1), "3 months": pd.DateOffset(months=3),
-                "1 year": pd.DateOffset(years=1), "All": None}
-
-REPLICATION_NOTES = {
-    "ETH/USDT": (
-        "Setups were designed on BTC/USDT. On ETH/USDT (notebook 08), neither setup showed an "
-        "advantage over random trades taken during uptrends."
-    ),
-    "SOL/USDT": (
-        "Setups were designed on BTC/USDT. On SOL/USDT (notebook 08), the continuation setup beat "
-        "an average day of the same year in every year since 2021, but the advantage has shrunk "
-        "from about +10% to about +2% per 5 days in recent years. The pullback setup underperformed."
-    ),
+# The project's data folder; CRYPTOSENSE_DATA_DIR overrides it (used by the dashboard smoke test).
+DATA_DIR = Path(os.environ.get("CRYPTOSENSE_DATA_DIR") or Path(__file__).resolve().parents[1] / "data")
+CHART_RANGES = {
+    "1 month": pd.DateOffset(months=1),
+    "3 months": pd.DateOffset(months=3),
+    "1 year": pd.DateOffset(years=1),
+    "All": None,
 }
+
 
 @st.cache_data
 def load_symbol(symbol):
@@ -75,20 +85,7 @@ def load_rv_open(symbol, date):
 @st.cache_data
 def load_active_patterns(symbol):
     """Setups flagged on the latest day: name, plain-language description and evidence badge."""
-    df = load_symbol(symbol)
-    patterns = []
-    for setup in SETUPS:
-        e = explain_setup(df, df.index[-1], setup)
-        if not e["flagged"]:
-            continue
-        have_stats = e["past_mean_return"] is not None and e["past_mean_se"] is not None
-        gap = e["past_mean_return"] - e["base_same_trend_mean"] if have_stats else float("nan")
-        se = e["past_mean_se"] if have_stats else float("nan")
-        evidence = evidence_strength(gap, se, e["past_episodes"])
-        if symbol != "BTC/USDT":
-            evidence += " (designed on BTC)"
-        patterns.append({"name": setup, "description": describe_setup(setup), "evidence": evidence})
-    return patterns
+    return service.active_patterns(DATA_DIR, symbol)
 
 
 @st.cache_resource(ttl=60)
@@ -105,29 +102,46 @@ def load_realized_ahead(symbol):
         return None
     return realized_vol_ahead(daily_realized_vol(m15), horizon=5).reindex(load_symbol(symbol).index)
 
-COST_PER_SIDE = 0.0015  # 0.10% fee + 0.05% slippage, as assumed in Phase 6
-
 
 @st.cache_data
 def run_strategies(symbol, start):
     """Backtest the continuation setup (5- and 10-day holds) and buy-and-hold from `start`."""
-    data = load_symbol(symbol).loc[start:].dropna(subset=["dist_sma_100", "rel_volume_20", "er_20"])
-    summaries, curves = {}, {}
+    return service.run_strategies(DATA_DIR, symbol, start)
 
-    for hold in [5, 10]:
-        trades, equity = run_backtest(data, setup_flag(data, "continuation"), hold, COST_PER_SIDE)
-        summaries[f"continuation {hold}d"] = summarize_backtest(trades, equity)
-        curves[f"continuation {hold}d"] = equity
 
-    hold_all = pd.Series(False, index=data.index)
-    hold_all.iloc[0] = True
-    trades, equity = run_backtest(data, hold_all, len(data) - 2, COST_PER_SIDE)
-    summary = summarize_backtest(trades, equity)
-    summary["win_rate"] = summary["avg_trade"] = None
-    summaries["buy and hold"] = summary
-    curves["buy and hold"] = equity
+def risk_helper(close, typical_move, basis, key):
+    """Show the risk helper: account inputs, suggested stop, position size and what hitting the stop costs.
 
-    return pd.DataFrame(summaries).T, pd.DataFrame(curves)
+    `typical_move` is the typical move over the holding period, `basis` names it in the explanation
+    (for example "tomorrow's typical swing"), and `key` keeps this helper's inputs separate from the
+    other tab's.
+    """
+    col1, col2 = st.columns(2)
+    account = col1.number_input("Account size (USDT)", min_value=1.0, value=1000.0, step=100.0, key=f"account_{key}")
+    risk_pct = col2.number_input(
+        "Share of the account you are willing to lose on one trade (%)",
+        min_value=0.1,
+        max_value=100.0,
+        value=1.0,
+        step=0.5,
+        key=f"risk_pct_{key}",
+    )
+    stop_price, stop_fraction = stop_level(close, suggested_stop(typical_move))
+    invest = position_size(account, risk_pct / 100, stop_fraction)
+    col1, col2 = st.columns(2)
+    col1.metric(
+        "Suggested stop", f"{stop_price:,.2f} USDT", f"-{stop_fraction:.1%} below today's close", delta_color="off"
+    )
+    col2.metric("Position size", f"{invest:,.2f} USDT")
+    st.write(
+        f"Placing the stop at twice {basis}, investing {invest:,.2f} USDT means that "
+        f"hitting the stop loses about {account * risk_pct / 100:,.2f} USDT "
+        f"({risk_pct:g}% of the account), before costs."
+    )
+    if invest > account:
+        st.warning("This is more than the account size; it would require borrowing, which this tool does not assume.")
+    st.caption("Prices can jump past a stop in fast markets.")
+
 
 st.set_page_config(page_title="CryptoSense AI", layout="wide")
 st.title("CryptoSense AI")
@@ -138,18 +152,18 @@ symbol = st.sidebar.selectbox("Asset", WATCHLIST)
 if st.sidebar.button("Refresh data from Binance"):
     try:
         with st.sidebar.status("Fetching and validating data..."):
-            exchange = ccxt.binance()
-            now_ms = exchange.milliseconds()
-            results = [{**update_symbol(exchange, s, DATA_DIR, now_ms), "unit": "days"} for s in WATCHLIST]
-            for s in HAR_SYMBOLS:
-                if not (DATA_DIR / "raw" / f"{symbol_to_slug(s)}_15m_raw.csv").exists():
-                    st.write(f"Downloading 15-minute data for {s} for the first time; this takes a few minutes.")
-                results.append({**update_symbol(exchange, s, DATA_DIR, now_ms, timeframe="15m"),
-                                "unit": "15-minute candles"})
+            exchange = make_exchange()
+
+            def announce(asset, timeframe, first_time):
+                if first_time and timeframe == "15m":
+                    st.write(f"Downloading 15-minute data for {asset} for the first time; this takes a few minutes.")
+
+            results = update_all(exchange, DATA_DIR, exchange.milliseconds(), announce)
     except Exception as error:
         st.sidebar.error(f"Refresh failed: {error}. Any symbols updated before the error were kept.")
     else:
         st.cache_data.clear()
+        service.clear_cache()
         st.session_state["refresh_results"] = results
         st.rerun()
 
@@ -174,8 +188,18 @@ age_days = (pd.Timestamp.now(tz="UTC").normalize() - last_date).days
 st.sidebar.write(f"Last complete candle: **{last_date.date()}**")
 st.sidebar.write(f"Data age: {age_days} day(s)")
 
+news_now = pd.Timestamp.now(tz="UTC").to_pydatetime()
+news_status = load_collector_status(DATA_DIR, news_now)
+with st.sidebar.expander(f"News collector: {news_status['days_to_spare']} day(s) to spare"):
+    st.caption("Data-quality check for the news study (hours rule only; sentiment is not shown).")
+    for line in format_status(news_status, news_now):
+        st.caption(line)
+
 chart_range = st.sidebar.segmented_control(
-    "Chart range", list(CHART_RANGES), default="3 months", required=True,
+    "Chart range",
+    list(CHART_RANGES),
+    default="3 months",
+    required=True,
     help="Period shown in the daily charts.",
 )
 range_offset = CHART_RANGES[chart_range]
@@ -189,13 +213,27 @@ def in_range(frame):
 
 # Facts and deductions for tomorrow, shared by "Today & tomorrow" and the assistant.
 forecast_1d, forecast_1d_method = load_forecast(symbol, horizon=1)
-facts = build_facts(df, symbol, forecast_1d.iloc[-1], forecast_1d_method,
-                    rv_open=load_rv_open(symbol, last_date), patterns=load_active_patterns(symbol))
+facts = build_facts(
+    df,
+    symbol,
+    forecast_1d.iloc[-1],
+    forecast_1d_method,
+    rv_open=load_rv_open(symbol, last_date),
+    patterns=load_active_patterns(symbol),
+)
 insights = derive_insights(facts)
 
 today_tab, assistant_tab, summary, overview, conditions, setups, volatility, backtest = st.tabs(
-    ["Today & tomorrow", "Ask the assistant", "Summary", "Market overview", "Market conditions",
-     "Patterns (research)", "Volatility", "Strategy test results"]
+    [
+        "Today & tomorrow",
+        "Ask the assistant",
+        "Summary",
+        "Market overview",
+        "Market conditions",
+        "Patterns (research)",
+        "Volatility",
+        "Strategy test results",
+    ]
 )
 
 with today_tab:
@@ -207,13 +245,16 @@ with today_tab:
     if facts["swing_1d"] is None or facts["range_low"] is None:
         st.info("Not enough history to estimate tomorrow's typical swing.")
     else:
-        swing_1d_name = ("typical swing (including moves within the day)"
-                         if forecast_1d_method == HAR_LABEL else "typical move")
+        swing_1d_name = (
+            "typical swing (including moves within the day)" if forecast_1d_method == HAR_LABEL else "typical move"
+        )
         col1, col2 = st.columns(2)
         col1.metric(f"Tomorrow's {swing_1d_name}", f"±{facts['swing_1d']:.1%}")
         col2.metric("Typical range", f"{facts['range_low']:,.2f} – {facts['range_high']:,.2f} USDT")
-        st.caption(f"From today's close of {close_today:,.2f} USDT. This is a typical size of move, "
-                   "not a direction; larger moves do happen.")
+        st.caption(
+            f"From today's close of {close_today:,.2f} USDT. This is a typical size of move, "
+            "not a direction; larger moves do happen."
+        )
 
     st.markdown("#### What this means")
     for insight in sorted(insights, key=lambda i: i.kind != "warning"):
@@ -228,35 +269,18 @@ with today_tab:
 
     st.markdown("#### Risk helper")
     if facts["swing_1d"] is not None:
-        col1, col2 = st.columns(2)
-        account_1d = col1.number_input("Account size (USDT)", min_value=1.0, value=1000.0, step=100.0,
-                                       key="account_1d")
-        risk_pct_1d = col2.number_input(
-            "Share of the account you are willing to lose on one trade (%)",
-            min_value=0.1, max_value=100.0, value=1.0, step=0.5, key="risk_pct_1d",
-        )
-        stop_price_1d, stop_fraction_1d = stop_level(close_today, suggested_stop(facts["swing_1d"]))
-        invest_1d = position_size(account_1d, risk_pct_1d / 100, stop_fraction_1d)
-        col1, col2 = st.columns(2)
-        col1.metric("Suggested stop", f"{stop_price_1d:,.2f} USDT",
-                    f"-{stop_fraction_1d:.1%} below today's close", delta_color="off")
-        col2.metric("Position size", f"{invest_1d:,.2f} USDT")
-        st.write(
-            f"Placing the stop at twice tomorrow's typical {swing_1d_word}, investing {invest_1d:,.2f} USDT means that "
-            f"hitting the stop loses about {account_1d * risk_pct_1d / 100:,.2f} USDT "
-            f"({risk_pct_1d:g}% of the account), before costs."
-        )
-        if invest_1d > account_1d:
-            st.warning("This is more than the account size; it would require borrowing, which this tool does not assume.")
-        st.caption("Prices can jump past a stop in fast markets.")
+        risk_helper(close_today, facts["swing_1d"], f"tomorrow's typical {swing_1d_word}", "1d")
 
     st.markdown("#### Last 3 days, every 15 minutes")
     m15 = load_m15(symbol) if symbol in HAR_SYMBOLS else None
     if m15 is None:
-        st.caption("No intraday data for this asset." if symbol not in HAR_SYMBOLS else
-                   "No 15-minute data yet. Click **Refresh data from Binance** to download it.")
+        st.caption(
+            "No intraday data for this asset."
+            if symbol not in HAR_SYMBOLS
+            else "No 15-minute data yet. Click **Refresh data from Binance** to download it."
+        )
     else:
-        recent_m15 = m15.loc[m15.index[-1] - pd.Timedelta(days=3):]
+        recent_m15 = m15.loc[m15.index[-1] - pd.Timedelta(days=3) :]
         intraday_fig = px.line(recent_m15, y="close", title=f"{symbol} 15-minute close, last 3 days (UTC)")
         st.plotly_chart(intraday_fig, width="stretch")
 
@@ -274,8 +298,10 @@ with assistant_tab:
             title="The assistant is not available",
         )
     else:
-        st.caption("Answers use only the facts and deductions on the **Today & tomorrow** tab. "
-                   "Information, not financial advice.")
+        st.caption(
+            "Answers use only the facts and deductions on the **Today & tomorrow** tab. "
+            "Information, not financial advice."
+        )
         chats = st.session_state.setdefault("chats", {})
         history = chats.setdefault(symbol, [])
         for message in history:
@@ -321,36 +347,14 @@ with summary:
     for setup in SETUPS:
         e = explain_setup(df, last_date, setup)
         if e["flagged"]:
-            have_stats = e["past_mean_return"] is not None and e["past_mean_se"] is not None
-            gap = e["past_mean_return"] - e["base_same_trend_mean"] if have_stats else float("nan")
-            se = e["past_mean_se"] if have_stats else float("nan")
-            badge = evidence_strength(gap, se, e["past_episodes"])
+            badge = setup_evidence(e)
             st.write(f"**Pattern found:** {describe_setup(setup)}")
             st.write(f"Evidence: **{badge}**. {evidence_meaning(badge)}")
         else:
             st.write(f"**Not present today:** {describe_setup(setup)}")
 
     st.markdown("#### Risk helper")
-    col1, col2 = st.columns(2)
-    account = col1.number_input("Account size (USDT)", min_value=1.0, value=1000.0, step=100.0)
-    risk_pct = col2.number_input(
-        "Share of the account you are willing to lose on one trade (%)",
-        min_value=0.1, max_value=100.0, value=1.0, step=0.5,
-    )
-    stop_price, stop_fraction = stop_level(close_today, suggested_stop(move))
-    invest = position_size(account, risk_pct / 100, stop_fraction)
-    col1, col2 = st.columns(2)
-    col1.metric("Suggested stop", f"{stop_price:,.2f} USDT", f"-{stop_fraction:.1%} below today's close",
-                delta_color="off")
-    col2.metric("Position size", f"{invest:,.2f} USDT")
-    st.write(
-        f"Placing the stop at twice the typical 5-day {swing}, investing {invest:,.2f} USDT means that "
-        f"hitting the stop loses about {account * risk_pct / 100:,.2f} USDT ({risk_pct:g}% of the account), "
-        "before costs."
-    )
-    if invest > account:
-        st.warning("This is more than the account size; it would require borrowing, which this tool does not assume.")
-    st.caption("Prices can jump past a stop in fast markets.")
+    risk_helper(close_today, move, f"the typical 5-day {swing}", "5d")
 
     st.divider()
     st.write("This summary describes market conditions and past evidence. It is not advice to buy or sell.")
@@ -389,7 +393,10 @@ with conditions:
     col4.metric("Efficiency ratio (20d)", f"{today['er_20']:.2f}")
 
     regime_fig = px.scatter(
-        in_range(df).dropna(subset=["trend"]), y="close", color="trend", log_y=True,
+        in_range(df).dropna(subset=["trend"]),
+        y="close",
+        color="trend",
+        log_y=True,
         color_discrete_map={"up": "#2ca02c", "down": "#d62728", "range": "#7f7f7f"},
         title=f"{symbol} trend regimes",
     )
@@ -417,8 +424,11 @@ with setups:
         st.dataframe(conditions_table, hide_index=True)
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric(f"Typical 5-day {swing}", f"±{forecast.iloc[-1] * np.sqrt(5):.1%}",
-                    help=f"{swing_long.capitalize()}. Method: {forecast_method}.")
+        col1.metric(
+            f"Typical 5-day {swing}",
+            f"±{forecast.iloc[-1] * np.sqrt(5):.1%}",
+            help=f"{swing_long.capitalize()}. Method: {forecast_method}.",
+        )
         col2.metric("Past episodes", e["past_episodes"])
         if e["past_episodes"] > 1:
             col3.metric(
@@ -427,10 +437,10 @@ with setups:
                 help=f"Standard error ±{e['past_mean_se']:.2%}",
             )
             col4.metric("Avg day in same trend regime", f"{e['base_same_trend_mean']:+.2%}")
-            gap = e["past_mean_return"] - e["base_same_trend_mean"]
+            gap, gap_se = evidence_gap(e)
             st.caption(
                 f"Difference from an average {e['trend']}-trend day: {gap:+.2%} "
-                f"({gap / e['past_mean_se']:+.1f} standard errors). "
+                f"({gap / gap_se:+.1f} standard errors). "
                 "Below about 2 standard errors, the difference could be chance."
             )
 
@@ -447,8 +457,9 @@ with volatility:
     st.write(f"Method: **{forecast_method}**")
     col1, col2, col3 = st.columns(3)
     col1.metric("Daily volatility", f"{latest:.2%}")
-    col2.metric(f"Typical {HORIZON}-day {swing}", f"±{latest * np.sqrt(HORIZON):.1%}",
-                help=swing_long.capitalize() + ".")
+    col2.metric(
+        f"Typical {HORIZON}-day {swing}", f"±{latest * np.sqrt(HORIZON):.1%}", help=swing_long.capitalize() + "."
+    )
     col3.metric("Annualised", f"{latest * np.sqrt(365):.0%}")
     if is_har:
         st.caption(
@@ -457,10 +468,12 @@ with volatility:
             "not better at forecasting where the price closes."
         )
     else:
-        note = ("No intraday data for this asset; using the 20-day volatility forecast."
-                if symbol not in HAR_SYMBOLS else
-                "15-minute data is missing or out of date; using the 20-day volatility forecast. "
-                "Click **Refresh data from Binance** to update it.")
+        note = (
+            "No intraday data for this asset; using the 20-day volatility forecast."
+            if symbol not in HAR_SYMBOLS
+            else "15-minute data is missing or out of date; using the 20-day volatility forecast. "
+            "Click **Refresh data from Binance** to update it."
+        )
         st.caption(
             "Forecast = 20-day volatility × a scale factor learned only from past, completed outcomes. "
             "In Phase 4 (BTC), this scaled forecast beat raw 20-day volatility by 8–11% in every "
@@ -471,46 +484,61 @@ with volatility:
     if realized_rv is not None:
         realized, realized_name = realized_rv, f"realized next {HORIZON} days (15-minute data)"
     else:
-        realized = np.sqrt((df["log_return"] ** 2).rolling(HORIZON).mean()).shift(-HORIZON)
+        realized = rms_ahead(df["log_return"], HORIZON)
         realized_name = f"realized next {HORIZON} days"
-    comparison = in_range(pd.DataFrame({
-        "forecast": forecast,
-        realized_name: realized,
-    })) * np.sqrt(365)
+    comparison = in_range(
+        pd.DataFrame(
+            {
+                "forecast": forecast,
+                realized_name: realized,
+            }
+        )
+    ) * np.sqrt(365)
     vol_fig = px.line(comparison, title="Forecast vs realized volatility (annualised)")
     vol_fig.update_yaxes(tickformat=".0%")
     st.plotly_chart(vol_fig, width="stretch")
     st.caption(
-        f"Realized volatility is only known {HORIZON} days later, so the most recent "
-        "days show the forecast alone."
+        f"Realized volatility is only known {HORIZON} days later, so the most recent days show the forecast alone."
     )
 
 with backtest:
     st.caption(
         "Continuation setup, long only: enter at the next day's open after a signal, hold 5 or 10 days, "
-        "one position at a time, all-in, 0.30% round-trip costs. Past performance does not "
+        f"one position at a time, all-in, {2 * COST_PER_SIDE:.2%} round-trip costs. Past performance does not "
         "guarantee future results."
     )
     if symbol in REPLICATION_NOTES:
         st.warning(REPLICATION_NOTES[symbol])
-        
+
     period = st.radio("Period", ["Full history", "Held-out test (2024 onward)"], horizontal=True)
     start = "2024-01-01" if period.startswith("Held-out") else None
     summary_table, curves = run_strategies(symbol, start)
 
-    percent_columns = ["total_return", "annual_volatility", "max_drawdown",
-                       "time_in_market", "win_rate", "avg_trade"]
+    percent_columns = [
+        "total_return",
+        "annual_return",
+        "annual_volatility",
+        "max_drawdown",
+        "time_in_market",
+        "win_rate",
+        "avg_trade",
+    ]
     st.dataframe(
-        summary_table.style.format({c: "{:.1%}" for c in percent_columns} | {"trades": "{:.0f}"},
-                                   na_rep="—")
+        summary_table.style.format(
+            {c: "{:.1%}" for c in percent_columns} | {"trades": "{:.0f}", "return_per_risk": "{:.2f}"}, na_rep="—"
+        )
     )
+    st.caption("return_per_risk = annual_return divided by annual_volatility.")
 
-    equity_fig = px.line(in_range(curves), log_y=True, title="Account value (1.0 at the start of the backtest, log scale)")
+    equity_fig = px.line(
+        in_range(curves), log_y=True, title="Account value (1.0 at the start of the backtest, log scale)"
+    )
     st.plotly_chart(equity_fig, width="stretch")
 
-    st.caption(
-        "Phase 6 findings (BTC): the continuation strategy stayed profitable after costs on held-out "
-        "data, with far smaller drawdowns and a better return per unit of risk than buy-and-hold, but "
-        "a lower total return. Its advantage over random trades taken during uptrends is suggestive, "
-        "not established; trade counts are small."
-    )
+    if symbol == "BTC/USDT":
+        st.caption(
+            "Phase 6 findings (BTC): the continuation strategy stayed profitable after costs on held-out "
+            "data, with far smaller drawdowns and a better return per unit of risk than buy-and-hold, but "
+            "a lower total return. Its advantage over random trades taken during uptrends is suggestive, "
+            "not established; trade counts are small."
+        )

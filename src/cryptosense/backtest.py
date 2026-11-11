@@ -9,6 +9,10 @@ while a trade is open are ignored; costs are charged on both entry and exit.
 import numpy as np
 import pandas as pd
 
+# Fee plus slippage charged on each buy and each sell: 0.10% fee + 0.05% slippage.
+# The single source of the project's cost assumption; import it instead of retyping it.
+COST_PER_SIDE = 0.0015
+
 
 def find_trades(signal, hold_days):
     """Turn a daily signal into non-overlapping trades.
@@ -73,7 +77,7 @@ def find_one_day_trades(signal):
     return [(t + 1, t + 2) for t in range(n) if flags[t] and t + 2 < n]
 
 
-def run_backtest(df, signal, hold_days, cost_per_side=0.0015):
+def run_backtest(df, signal, hold_days, cost_per_side=COST_PER_SIDE):
     """Simulate trading a signal with open-price execution and costs.
 
     Parameters
@@ -84,7 +88,7 @@ def run_backtest(df, signal, hold_days, cost_per_side=0.0015):
         True on days the setup is flagged at the close, aligned with ``df``.
     hold_days : int
         Number of days each trade is held.
-    cost_per_side : float, default 0.0015
+    cost_per_side : float, default ``COST_PER_SIDE`` (0.0015)
         Fee plus slippage charged on each buy and each sell
         (0.0015 = 0.10% fee + 0.05% slippage).
 
@@ -103,14 +107,16 @@ def run_backtest(df, signal, hold_days, cost_per_side=0.0015):
 
     for entry, exit_ in find_trades(signal, hold_days):
         p_in, p_out = opens.iloc[entry], opens.iloc[exit_]
-        rows.append({
-            "entry_date": df.index[entry],
-            "exit_date": df.index[exit_],
-            "entry_price": p_in,
-            "exit_price": p_out,
-            "gross_return": p_out / p_in - 1,
-            "net_return": (p_out * (1 - cost_per_side)) / (p_in * (1 + cost_per_side)) - 1,
-        })
+        rows.append(
+            {
+                "entry_date": df.index[entry],
+                "exit_date": df.index[exit_],
+                "entry_price": p_in,
+                "exit_price": p_out,
+                "gross_return": p_out / p_in - 1,
+                "net_return": (p_out * (1 - cost_per_side)) / (p_in * (1 + cost_per_side)) - 1,
+            }
+        )
 
         # Day-by-day price growth while holding, then costs at entry and exit.
         held = slice(entry + 1, exit_ + 1)
@@ -127,17 +133,26 @@ def run_backtest(df, signal, hold_days, cost_per_side=0.0015):
 def summarize_backtest(trades, equity, days_per_year=365):
     """Summary metrics for a backtest.
 
-    Returns a dict with total return, annualized volatility of daily equity
-    changes, maximum drawdown, number of trades, share of days in the market,
-    win rate and average net return per trade.
+    Returns a dict with total return, annualized return (compound growth per
+    year over the whole period), annualized volatility of daily equity
+    changes, return per unit of risk (annualized return divided by annualized
+    volatility; None when either is unavailable), maximum drawdown, number of
+    trades, share of days in the market, win rate and average net return per
+    trade.
     """
     daily = equity.pct_change().dropna()
     held_days = sum((t.exit_date - t.entry_date).days for t in trades.itertuples())
     total_days = (equity.index[-1] - equity.index[0]).days
+    growth = float(equity.iloc[-1] / equity.iloc[0])
+    annual_return = growth ** (days_per_year / total_days) - 1 if total_days else None
+    annual_volatility = float(daily.std() * np.sqrt(days_per_year))
+    has_risk = annual_return is not None and annual_volatility > 0
 
     return {
         "total_return": float(equity.iloc[-1] / equity.iloc[0] - 1),
-        "annual_volatility": float(daily.std() * np.sqrt(days_per_year)),
+        "annual_return": annual_return,
+        "annual_volatility": annual_volatility,
+        "return_per_risk": annual_return / annual_volatility if has_risk else None,
         "max_drawdown": float((equity / equity.cummax() - 1).min()),
         "trades": int(len(trades)),
         "time_in_market": held_days / total_days if total_days else 0.0,

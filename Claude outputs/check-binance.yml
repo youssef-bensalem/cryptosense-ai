@@ -1,0 +1,49 @@
+# One-off check: can GitHub's servers download Binance market data?
+# Save as .github/workflows/check-binance.yml, commit and push. It runs once
+# when this file is pushed (on any branch) and can be re-run from the Actions tab.
+# It only reads public prices: no account, no API key, nothing is saved.
+name: Check Binance access
+
+on:
+  push:
+    paths:
+      - ".github/workflows/check-binance.yml"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install ccxt==4.5.88
+      - name: Try each Binance address
+        run: |
+          python - <<'EOF'
+          import ccxt
+
+          # Spot markets only, so the library never contacts the futures addresses.
+          SPOT_ONLY = {"options": {"fetchMarkets": ["spot"], "fetchCurrencies": False}}
+          ROUTES = {
+              "1. main address (api.binance.com)": None,
+              "2. market-data address (data-api.binance.vision)": "https://data-api.binance.vision/api/v3",
+              "3. market-data address (data.binance.com)": "https://data.binance.com/api/v3",
+          }
+          results = {}
+          for name, public_url in ROUTES.items():
+              exchange = ccxt.binance(SPOT_ONLY)
+              if public_url:
+                  exchange.urls["api"]["public"] = public_url
+              try:
+                  daily = exchange.fetch_ohlcv("SOL/USDT", timeframe="1d", limit=5)
+                  m15 = exchange.fetch_ohlcv("BTC/USDT", timeframe="15m", limit=1000)
+                  results[name] = f"OK ({len(daily)} daily candles, {len(m15)} 15-minute candles)"
+              except Exception as error:
+                  results[name] = f"FAILED: {type(error).__name__}: {str(error)[:200]}"
+
+          print()
+          print("RESULT")
+          for name, outcome in results.items():
+              print(f"  {name}: {outcome}")
+          EOF

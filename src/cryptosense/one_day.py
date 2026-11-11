@@ -6,12 +6,11 @@ pre-registered and approved in notebooks/15_one_day_setups.ipynb before any
 outcome was computed; they are defined once here.
 """
 
-import operator
-
 import numpy as np
 import pandas as pd
 
 from cryptosense.intraday import CANDLE, NY_TZ, lag_by_time
+from cryptosense.setups import conditions_hold
 
 US_OPEN_HOURS_NY = (9, 10)
 CANDLES_IN_US_OPEN = 8
@@ -25,7 +24,6 @@ ONE_DAY_SETUPS = {
     "D1": [("trend", "==", "up"), ("rv_open", ">", RV_OPEN_THRESHOLD), ("ret_open", ">", 0.0)],
     "D2": [("rv_open", ">", RV_OPEN_THRESHOLD), ("ret_open", "<", 0.0), ("log_return", ">", 0.0)],
 }
-ONE_DAY_OPS = {">": operator.gt, "<": operator.lt, "==": operator.eq}
 
 
 def us_open_measures(m15):
@@ -65,10 +63,12 @@ def us_open_measures(m15):
     r = ret_15m[in_window]
     day = m15.index[in_window].normalize()
     complete = r.groupby(day).count() == CANDLES_IN_US_OPEN
-    out = pd.DataFrame({
-        "rv_open": np.sqrt((r ** 2).groupby(day).sum()),
-        "ret_open": r.groupby(day).sum(),
-    }).where(complete)
+    out = pd.DataFrame(
+        {
+            "rv_open": np.sqrt((r**2).groupby(day).sum()),
+            "ret_open": r.groupby(day).sum(),
+        }
+    ).where(complete)
     out.index.name = "date"
     return out
 
@@ -104,8 +104,9 @@ def one_day_signals(daily, open_measures, symbol):
         If ``symbol`` has no pre-registered threshold.
     """
     if symbol not in RV_OPEN_THRESHOLDS:
-        raise ValueError(f"No pre-registered rv_open threshold for {symbol!r}; "
-                         f"expected one of {sorted(RV_OPEN_THRESHOLDS)}.")
+        raise ValueError(
+            f"No pre-registered rv_open threshold for {symbol!r}; expected one of {sorted(RV_OPEN_THRESHOLDS)}."
+        )
     threshold = RV_OPEN_THRESHOLDS[symbol]
 
     measures = open_measures.set_axis(open_measures.index.as_unit(daily.index.unit))
@@ -115,9 +116,7 @@ def one_day_signals(daily, open_measures, symbol):
 
     out = pd.DataFrame(index=daily.index)
     for name, rules in ONE_DAY_SETUPS.items():
-        fires = frame[[feature for feature, _, _ in rules]].notna().all(axis=1)
-        for feature, op, value in rules:
-            value = threshold if value == RV_OPEN_THRESHOLD else value
-            fires &= ONE_DAY_OPS[op](frame[feature], value).fillna(False).astype(bool)
-        out[name] = fires & not_saturday
+        resolved = [(feature, op, threshold if value == RV_OPEN_THRESHOLD else value) for feature, op, value in rules]
+        complete = frame[[feature for feature, _, _ in rules]].notna().all(axis=1)
+        out[name] = complete & conditions_hold(frame, resolved) & not_saturday
     return out

@@ -7,10 +7,10 @@ not by row count: a feature whose required past candle is missing is NaN,
 never computed from a different time.
 """
 
-import operator
-
 import numpy as np
 import pandas as pd
+
+from cryptosense.setups import conditions_hold
 
 CANDLE = pd.Timedelta("15min")
 RETURN_WINDOWS = {"ret_1h": "1h", "ret_4h": "4h", "ret_24h": "24h"}
@@ -25,7 +25,6 @@ INTRADAY_SETUPS = {
     "S2": [("prev_day_trend", "==", "up"), ("ret_4h", "<", 0.0), ("rv_4h", ">", 0.010062)],
 }
 WINDOW_HOURS_NY = (9, 10)
-INTRADAY_OPS = {">": operator.gt, "<": operator.lt, "==": operator.eq}
 
 
 def lag_by_time(series, lag):
@@ -127,7 +126,7 @@ def add_intraday_features(m15, daily):
 
     ret_15m = log_close - lag_by_time(log_close, CANDLE)
     for column, window in RV_WINDOWS.items():
-        out[column] = np.sqrt(window_sum(ret_15m ** 2, window))
+        out[column] = np.sqrt(window_sum(ret_15m**2, window))
 
     volume_1h = window_sum(out["volume"], "1h")
     past = pd.concat(
@@ -190,10 +189,7 @@ def intraday_setup_flags(feats):
 
     for name, rules in INTRADAY_SETUPS.items():
         usable = decision[[feature for feature, _, _ in rules]].notna().all(axis=1)
-        fires = usable.copy()
-        for feature, op, threshold in rules:
-            fires &= INTRADAY_OPS[op](decision[feature], threshold).fillna(False).astype(bool)
-        out[name] = fires
+        out[name] = usable & conditions_hold(decision, rules)
         out[f"{name}_usable"] = usable
 
     return out

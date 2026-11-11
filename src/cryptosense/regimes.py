@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
 
-def add_regimes(df):
 
+def add_regimes(df):
     """Add rule-based trend and volatility regime labels to a feature DataFrame.
 
     Every label for a given day uses only that day's data and earlier days,
@@ -19,8 +19,8 @@ def add_regimes(df):
         is positive; "down" when both are negative; "range" when they
         disagree (a pullback in an uptrend or a rebound in a downtrend).
     vol_regime
-        "high" when 20-day volatility is above its median over the previous
-        365 days, otherwise "low". This is relative to the past year, not an
+        "high" when 20-day volatility is above its median over the last 365
+        days (today included), otherwise "low". This is relative to the past year, not an
         absolute level of volatility.
 
     Labels are NaN while their inputs are unavailable: the first 99 rows
@@ -40,9 +40,9 @@ def add_regimes(df):
 
     out = df.copy()
 
-    up=(out["dist_sma_100"]>0) & (out["mom_20"]>0)
-    down=(out["dist_sma_100"]<0) & (out["mom_20"]<0)
-    labels=np.select([up, down], ["up", "down"], default="range")
+    up = (out["dist_sma_100"] > 0) & (out["mom_20"] > 0)
+    down = (out["dist_sma_100"] < 0) & (out["mom_20"] < 0)
+    labels = np.select([up, down], ["up", "down"], default="range")
 
     valid = out[["dist_sma_100", "mom_20"]].notna().all(axis=1)
     out["trend"] = pd.Series(labels, index=out.index).where(valid)

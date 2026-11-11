@@ -3,8 +3,8 @@
 ## Project
 Personal crypto research and decision-support app (BTC/USDT, ETH/USDT, SOL/USDT). Research tool, not financial advice; never place trades or connect to a trading account. See README.md and ROADMAP.md for status and findings.
 
-- `main` branch = finished daily swing-trading project (tag v1.0). Do not modify `main` directly.
-- `intraday` branch = intraday research track (Phases 8–12 in ROADMAP.md).
+- `main` = latest stable version (tags v1.0: daily research app; v2.0: SOL-focused dashboard with HAR forecast and local assistant). Do not modify `main` directly.
+- Work happens only on the branch I have checked out. Do not create, switch or merge branches.
 
 ## Environment (Windows, PowerShell)
 - Python 3.12, virtual environment in `.venv`; package installed editable from `src/cryptosense/`.
@@ -14,10 +14,15 @@ Personal crypto research and decision-support app (BTC/USDT, ETH/USDT, SOL/USDT)
 
 ## Code rules
 - Analysis logic goes in `src/cryptosense/` with pytest tests; notebooks only orchestrate; `app/` only displays results from tested modules.
+- One source of truth: before adding a constant or function, check whether one already exists (for example in facts.py, context.py or explain.py) and reuse it.
 - Never modify an existing test to make it pass. If an existing test fails, stop and explain why.
 - Existing daily behavior (timeframe "1d") must stay identical unless I explicitly ask otherwise.
 - New functions get docstrings; new modules get tests, including a truncation leakage test for anything time-based.
 - Every new dependency must be explained before installing and then pinned in requirements.txt.
+
+## Secrets (the repository is public)
+- API keys and other secrets live only in `.env`, which is git-ignored. Never write a key into code, tests, notebooks, logs or output.
+- Tests never call real APIs or the network; use injected fakes.
 
 ## Research rules (most important)
 - No information from after time t may be used for any feature, label, scaler, threshold or decision at time t.
